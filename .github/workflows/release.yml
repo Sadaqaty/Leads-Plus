@@ -23,7 +23,7 @@ jobs:
           - os: windows-latest
             asset_name: LeadPulse-Windows-Setup.exe
             build_script: |
-              python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase
+              python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase pillow
               python -m playwright install chromium
               echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
               echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
@@ -33,7 +33,7 @@ jobs:
           - os: ubuntu-latest
             asset_name: LeadPulse-Linux-x86_64
             build_script: |
-              python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase
+              python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase pillow
               python -m playwright install chromium
               echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
               echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
@@ -43,12 +43,12 @@ jobs:
           - os: macos-latest
             asset_name: LeadPulse-macOS.zip
             build_script: |
-              python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase
+              python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase pillow
               python -m playwright install chromium
               echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
               echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
-              pyinstaller --noconfirm --windowed --icon=icon.png --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
+              pyinstaller --noconfirm --windowed --icon=icon.icns --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
               cd dist && zip -r LeadPulse-macOS.zip LeadPulse.app
 
     steps:
@@ -68,42 +68,17 @@ jobs:
         run: |
           ${{ matrix.build_script }}
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.os }}-build
-          path: |
-            dist_installer/LeadPulse-Installer-Setup.exe
-            dist/LeadPulse-Linux-x86_64.tar.gz
-            dist/LeadPulse-macOS.zip
-
-  release:
-    name: Create & Publish Release
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Move artifacts for release
-        run: |
-          mkdir -p release_assets
-          find artifacts -type f \( -name "*.exe" -o -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release_assets/ \;
-          ls -la release_assets/
-
-      - name: Create Release and Upload Assets
+      - name: Create Release & Upload Assets
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         with:
           tag_name: ${{ github.ref_name == 'main' && 'v1.0.0-latest' || github.ref_name == 'master' && 'v1.0.0-latest' || github.ref_name }}
-          name: LeadPulse Industrial Lead Gen Suite (${{ github.ref_name }})
+          name: LeadPulse Enterprise Extractor (${{ github.ref_name }})
           draft: false
           prerelease: false
-          files: release_assets/*
+          files: |
+            dist_installer/LeadPulse-Installer-Setup.exe
+            dist/LeadPulse-Linux-x86_64.tar.gz
+            dist/LeadPulse-macOS.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
