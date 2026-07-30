@@ -1,4 +1,5 @@
 import sys
+import os
 import asyncio
 import csv
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
@@ -349,6 +350,18 @@ class ModernMapsExtractor(QMainWindow):
                 background-color: #10B981;
             }
         """)
+
+        # Set window icon if available
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(base_dir, "icon.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
+        # Copyright Footer Label
+        self.copyright_label = QLabel("© Fixare Studio. All Rights Reserved. Intellectual Property of Fixare Studio.")
+        self.copyright_label.setStyleSheet("color: #4B5563; font-size: 11px; font-weight: 500;")
+        self.footer_layout.addWidget(self.copyright_label)
+        self.footer_layout.addStretch()
         self.footer_layout.addWidget(self.export_btn)
         
         self.main_layout.addLayout(self.footer_layout)

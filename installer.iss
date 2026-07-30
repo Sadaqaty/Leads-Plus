@@ -3,12 +3,14 @@
 AppId={{8B5CF600-LEAD-PULSE-SQL-EXTRACTOR}}
 AppName=LeadPulse Enterprise Extractor
 AppVersion=1.0.0
-AppPublisher=LeadPulse Inc.
-DefaultDirName={autopf}\LeadPulse
-DefaultGroupName=LeadPulse Enterprise Extractor
+AppPublisher=Fixare Studio
+AppCopyright=© Fixare Studio. All Rights Reserved. Intellectual Property of Fixare Studio.
+DefaultDirName={autopf}\LeadPulse Enterprise
+DefaultGroupName=LeadPulse Enterprise (Fixare Studio)
 AllowNoIcons=yes
 OutputDir=dist_installer
 OutputBaseFilename=LeadPulse-Installer-Setup
+SetupIconFile=icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -20,13 +22,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "dist\main\main.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "dist\main\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\LeadPulse\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\LeadPulse Enterprise Extractor"; Filename: "{app}\main.exe"
+Name: "{group}\LeadPulse Enterprise Extractor"; Filename: "{app}\LeadPulse.exe"; IconFilename: "{app}\icon.ico"
 Name: "{group}\{cm:UninstallProgram,LeadPulse Enterprise Extractor}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\LeadPulse Enterprise Extractor"; Filename: "{app}\main.exe"; Tasks: desktopicon
+Name: "{autodesktop}\LeadPulse Enterprise Extractor"; Filename: "{app}\LeadPulse.exe"; Tasks: desktopicon; IconFilename: "{app}\icon.ico"
 
 [Run]
-Filename: "{app}\main.exe"; Description: "{cm:LaunchProgram,LeadPulse Enterprise Extractor}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\LeadPulse.exe"; Description: "{cm:LaunchProgram,LeadPulse Enterprise Extractor}"; Flags: nowait postinstall skipifsilent

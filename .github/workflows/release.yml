@@ -26,8 +26,7 @@ jobs:
               python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase
               python -m playwright install chromium
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
-              CHROMIUM_PATH=$(python -c "import os, sys; print(os.path.expanduser('~\\\\AppData\\\\Local\\\\ms-playwright'))")
-              pyinstaller --noconfirm --onedir --windowed --add-data "${PLAYWRIGHT_PATH};playwright/driver" --add-data "config.env;." --name LeadPulse main.py
+              pyinstaller --noconfirm --onedir --windowed --icon=icon.ico --add-data "${PLAYWRIGHT_PATH};playwright/driver" --add-data "config.env;." --add-data "icon.png;." --add-data "icon.ico;." --name LeadPulse main.py
               iscc installer.iss
           - os: ubuntu-latest
             asset_name: LeadPulse-Linux-x86_64
@@ -35,7 +34,7 @@ jobs:
               python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase
               python -m playwright install chromium
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
-              pyinstaller --noconfirm --onedir --windowed --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "config.env:." --name LeadPulse-Linux main.py
+              pyinstaller --noconfirm --onedir --windowed --icon=icon.png --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse-Linux main.py
               cd dist && tar -czvf LeadPulse-Linux-x86_64.tar.gz LeadPulse-Linux
           - os: macos-latest
             asset_name: LeadPulse-macOS.zip
@@ -43,7 +42,7 @@ jobs:
               python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase
               python -m playwright install chromium
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
-              pyinstaller --noconfirm --windowed --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "config.env:." --name LeadPulse main.py
+              pyinstaller --noconfirm --windowed --icon=icon.png --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
               cd dist && zip -r LeadPulse-macOS.zip LeadPulse.app
 
     steps:
