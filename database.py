@@ -1,4 +1,5 @@
 import os
+import sys
 import sqlite3
 import logging
 import traceback
@@ -19,17 +20,27 @@ class DatabaseManager:
         self.supabase_url = os.getenv("SUPABASE_URL", "")
         self.supabase_key = os.getenv("SUPABASE_KEY", "")
         
-        config_path = os.path.join(base_dir, "config.env")
-        if os.path.exists(config_path):
-            with open(config_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, v = line.split("=", 1)
-                        if k.strip() == "SUPABASE_URL" and not self.supabase_url:
-                            self.supabase_url = v.strip()
-                        elif k.strip() == "SUPABASE_KEY" and not self.supabase_key:
-                            self.supabase_key = v.strip()
+        possible_config_paths = [
+            os.path.join(base_dir, "config.env"),
+            os.path.join(os.getcwd(), "config.env"),
+            os.path.expanduser("~/config.env")
+        ]
+        if hasattr(sys, '_MEIPASS'):
+            possible_config_paths.append(os.path.join(sys._MEIPASS, "config.env"))
+
+        for config_path in possible_config_paths:
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            if k.strip() == "SUPABASE_URL" and not self.supabase_url:
+                                self.supabase_url = v.strip()
+                            elif k.strip() == "SUPABASE_KEY" and not self.supabase_key:
+                                self.supabase_key = v.strip()
+                if self.supabase_url and self.supabase_key:
+                    break
 
         self.supabase: Client = None
         self.is_supabase_connected = False

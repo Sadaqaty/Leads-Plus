@@ -23,22 +23,27 @@ jobs:
           - os: windows-latest
             asset_name: LeadPulse-Windows-Setup.exe
             build_script: |
-              python -m pip install pyinstaller playwright PySide6 bs4 wakepy
-              playwright install chromium
-              pyinstaller --noconfirm --onedir --windowed --name LeadPulse main.py
+              python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase
+              python -m playwright install chromium
+              PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
+              CHROMIUM_PATH=$(python -c "import os, sys; print(os.path.expanduser('~\\\\AppData\\\\Local\\\\ms-playwright'))")
+              pyinstaller --noconfirm --onedir --windowed --add-data "${PLAYWRIGHT_PATH};playwright/driver" --add-data "config.env;." --name LeadPulse main.py
               iscc installer.iss
           - os: ubuntu-latest
             asset_name: LeadPulse-Linux-x86_64
             build_script: |
-              python -m pip install pyinstaller playwright PySide6 bs4 wakepy
-              playwright install chromium
-              pyinstaller --noconfirm --onefile --windowed --name LeadPulse-Linux-x86_64 main.py
+              python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase
+              python -m playwright install chromium
+              PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
+              pyinstaller --noconfirm --onedir --windowed --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "config.env:." --name LeadPulse-Linux main.py
+              cd dist && tar -czvf LeadPulse-Linux-x86_64.tar.gz LeadPulse-Linux
           - os: macos-latest
             asset_name: LeadPulse-macOS.zip
             build_script: |
-              python -m pip install pyinstaller playwright PySide6 bs4 wakepy
-              playwright install chromium
-              pyinstaller --noconfirm --windowed --name LeadPulse main.py
+              python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase
+              python -m playwright install chromium
+              PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
+              pyinstaller --noconfirm --windowed --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "config.env:." --name LeadPulse main.py
               cd dist && zip -r LeadPulse-macOS.zip LeadPulse.app
 
     steps:
@@ -61,7 +66,7 @@ jobs:
           name: ${{ matrix.os }}-build
           path: |
             dist_installer/LeadPulse-Installer-Setup.exe
-            dist/LeadPulse-Linux-x86_64
+            dist/LeadPulse-Linux-x86_64.tar.gz
             dist/LeadPulse-macOS.zip
 
   release:
@@ -80,7 +85,7 @@ jobs:
       - name: Move artifacts for release
         run: |
           mkdir -p release_assets
-          find artifacts -type f \( -name "*.exe" -o -name "LeadPulse-Linux-x86_64" -o -name "*.zip" \) -exec cp {} release_assets/ \;
+          find artifacts -type f \( -name "*.exe" -o -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release_assets/ \;
           ls -la release_assets/
 
       - name: Create Release and Upload Assets
