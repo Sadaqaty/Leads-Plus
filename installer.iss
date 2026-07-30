@@ -1,4 +1,4 @@
-# Inno Setup Script for LeadPulse Google Maps Extractor
+; Inno Setup Script for LeadPulse Google Maps Extractor
 [Setup]
 AppId={{8B5CF600-LEAD-PULSE-SQL-EXTRACTOR}}
 AppName=LeadPulse Enterprise Extractor
