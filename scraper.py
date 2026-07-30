@@ -233,13 +233,12 @@ class MapsScraper:
         self.results = []
         self.db = DatabaseManager()
 
-    async def scrape_maps(self, queries, total_results=10, callback=None, stop_event=None):
+    async def scrape_maps(self, queries, total_results=10, callback=None, stop_event=None, headless=True):
         if isinstance(queries, str):
             queries = [queries]
 
         async with async_playwright() as p:
-            # GUI should be headful by default
-            browser = await p.chromium.launch(headless=False)
+            browser = await p.chromium.launch(headless=headless)
             context = await browser.new_context(
                 viewport={'width': 1280, 'height': 800},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"

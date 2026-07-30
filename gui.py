@@ -5,7 +5,7 @@ import csv
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLineEdit, QPushButton, QTableWidget, 
                              QTableWidgetItem, QLabel, QHeaderView, QFrame, QSpinBox,
-                             QFileDialog, QTextEdit, QGraphicsDropShadowEffect)
+                             QFileDialog, QTextEdit, QGraphicsDropShadowEffect, QCheckBox)
 from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtGui import QFont, QColor, QIcon, QPalette
 from scraper import MapsScraper
@@ -62,10 +62,11 @@ class ScraperThread(QThread):
     finished = Signal()
     error = Signal(str)
 
-    def __init__(self, queries, limit):
+    def __init__(self, queries, limit, headless=True):
         super().__init__()
         self.queries = queries
         self.limit = limit
+        self.headless = headless
         self.scraper = MapsScraper()
         self.stop_event = None
 
@@ -89,7 +90,8 @@ class ScraperThread(QThread):
                     self.queries, 
                     total_results=self.limit, 
                     callback=callback,
-                    stop_event=self.stop_event
+                    stop_event=self.stop_event,
+                    headless=self.headless
                 ))
             self.finished.emit()
         except Exception as e:
@@ -227,6 +229,30 @@ class ModernMapsExtractor(QMainWindow):
             }
         """)
         settings_layout.addWidget(self.limit_spin)
+        
+        # Headless Toggle Switch
+        self.headless_cb = QCheckBox("⚡ Silent Background Extraction (Headless)")
+        self.headless_cb.setChecked(True)
+        self.headless_cb.setStyleSheet("""
+            QCheckBox {
+                color: #E5E7EB;
+                font-weight: bold;
+                font-size: 12px;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                border: 1px solid #4B5563;
+                background-color: #121216;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #6366F1;
+                border: 1px solid #8B5CF6;
+            }
+        """)
+        settings_layout.addWidget(self.headless_cb)
         
         settings_layout.addStretch()
         
@@ -417,9 +443,11 @@ class ModernMapsExtractor(QMainWindow):
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.status_label.setText(f"Status: Executing search batch ({len(queries)} queries)...")
-        self.progress_detail.setText("Playwright engine starting up...")
+        is_headless = self.headless_cb.isChecked()
+        mode_str = "silent headless background" if is_headless else "headful visual browser"
+        self.progress_detail.setText(f"Playwright engine starting up ({mode_str} mode)...")
         
-        self.thread = ScraperThread(queries, self.limit_spin.value())
+        self.thread = ScraperThread(queries, self.limit_spin.value(), headless=is_headless)
         self.thread.result_ready.connect(self.on_item_extracted)
         self.thread.finished.connect(self.on_finished)
         self.thread.error.connect(self.on_error)
