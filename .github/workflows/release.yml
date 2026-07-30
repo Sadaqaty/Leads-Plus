@@ -25,6 +25,8 @@ jobs:
             build_script: |
               python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase
               python -m playwright install chromium
+              echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
+              echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
               pyinstaller --noconfirm --onedir --windowed --icon=icon.ico --add-data "${PLAYWRIGHT_PATH};playwright/driver" --add-data "config.env;." --add-data "icon.png;." --add-data "icon.ico;." --name LeadPulse main.py
               iscc installer.iss
@@ -33,6 +35,8 @@ jobs:
             build_script: |
               python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase
               python -m playwright install chromium
+              echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
+              echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
               pyinstaller --noconfirm --onedir --windowed --icon=icon.png --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse-Linux main.py
               cd dist && tar -czvf LeadPulse-Linux-x86_64.tar.gz LeadPulse-Linux
@@ -41,6 +45,8 @@ jobs:
             build_script: |
               python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase
               python -m playwright install chromium
+              echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
+              echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
               pyinstaller --noconfirm --windowed --icon=icon.png --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
               cd dist && zip -r LeadPulse-macOS.zip LeadPulse.app
@@ -56,6 +62,9 @@ jobs:
 
       - name: Build Executable / Installer
         shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
           ${{ matrix.build_script }}
 
