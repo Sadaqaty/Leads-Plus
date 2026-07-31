@@ -228,6 +228,21 @@ class DeepCrawler:
                 unique_members.append(m)
         return unique_members
 
+def ensure_playwright_browsers():
+    """Ensure Playwright Chromium browser binary is downloaded and installed."""
+    try:
+        from playwright._impl._driver import compute_driver_executable, get_driver_env
+        import subprocess
+        driver_executable, _ = compute_driver_executable()
+        env = get_driver_env()
+        logger.info("Verifying/Installing Playwright Chromium browser binaries...")
+        subprocess.run([driver_executable, "install", "chromium"], env=env, check=True)
+        logger.info("Playwright Chromium browser is ready.")
+        return True
+    except Exception as e:
+        logger.warning(f"Auto-installing Playwright Chromium failed: {e}")
+        return False
+
 class MapsScraper:
     def __init__(self):
         self.results = []
@@ -238,7 +253,12 @@ class MapsScraper:
             queries = [queries]
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=headless)
+            try:
+                browser = await p.chromium.launch(headless=headless)
+            except Exception as launch_err:
+                logger.warning(f"Initial browser launch failed ({launch_err}). Auto-installing Playwright Chromium binaries...")
+                ensure_playwright_browsers()
+                browser = await p.chromium.launch(headless=headless)
             context = await browser.new_context(
                 viewport={'width': 1280, 'height': 800},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"

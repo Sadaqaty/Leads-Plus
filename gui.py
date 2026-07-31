@@ -12,6 +12,14 @@ from scraper import MapsScraper
 from database import DatabaseManager
 from wakepy import keep
 
+def get_resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller bundle."""
+    if hasattr(sys, '_MEIPASS'):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+
 class StatCard(QFrame):
     def __init__(self, title, value="0", icon_str="📊", accent_color="#8B5CF6"):
         super().__init__()
@@ -377,11 +385,20 @@ class ModernMapsExtractor(QMainWindow):
             }
         """)
 
+        # Set AppUserModelID on Windows so taskbar displays custom icon instead of default Python logo
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("FixareStudio.LeadPulse.Extractor.1.0")
+            except Exception:
+                pass
+
         # Set window icon if available
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        icon_path = os.path.join(base_dir, "icon.png")
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+        for icon_file in ["icon.png", "icon.ico", "icon.icns"]:
+            icon_path = get_resource_path(icon_file)
+            if os.path.exists(icon_path):
+                self.setWindowIcon(QIcon(icon_path))
+                break
 
         # Copyright Footer Label
         self.copyright_label = QLabel("© Fixare Studio. All Rights Reserved. Intellectual Property of Fixare Studio.")

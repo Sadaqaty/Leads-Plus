@@ -19,10 +19,13 @@ WizardStyle=modern
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checked
 
 [Files]
 Source: "dist\LeadPulse\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "icon.png"; DestDir: "{app}"; Flags: ignoreversion
+Source: "config.env.example"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\LeadPulse Enterprise Extractor"; Filename: "{app}\LeadPulse.exe"; IconFilename: "{app}\icon.ico"
