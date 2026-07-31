@@ -24,7 +24,7 @@ jobs:
             asset_name: LeadPulse-Windows-Setup.exe
             build_script: |
               python -m pip install --upgrade pip
-              python -m pip install -r requirements.txt || python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase pillow
+              python -m pip install -r requirements.txt pyinstaller
               export PLAYWRIGHT_BROWSERS_PATH=ms-playwright
               python -m playwright install chromium
               echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
@@ -36,7 +36,7 @@ jobs:
             asset_name: LeadPulse-Linux-amd64.deb
             build_script: |
               python -m pip install --upgrade pip
-              python -m pip install -r requirements.txt || python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase pillow
+              python -m pip install -r requirements.txt pyinstaller
               export PLAYWRIGHT_BROWSERS_PATH=ms-playwright
               python -m playwright install --with-deps chromium
               echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
@@ -83,7 +83,7 @@ jobs:
             asset_name: LeadPulse-macOS.dmg
             build_script: |
               python -m pip install --upgrade pip
-              python -m pip install -r requirements.txt || python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase pillow
+              python -m pip install -r requirements.txt pyinstaller
               export PLAYWRIGHT_BROWSERS_PATH=ms-playwright
               python -m playwright install chromium
               brew install create-dmg || true
