@@ -106,6 +106,27 @@ class DatabaseManager:
                         FOREIGN KEY (lead_place_id) REFERENCES leads (place_id)
                     )
                 """)
+                
+                # Auto-migrate: ensure any newly added columns exist in SQLite leads table
+                cursor.execute("PRAGMA table_info(leads)")
+                existing_cols = {c[1] for c in cursor.fetchall()}
+                expected_cols = {
+                    "place_id": "TEXT", "name": "TEXT", "query": "TEXT",
+                    "is_spending_on_ads": "TEXT", "reviews": "TEXT", "rating": "TEXT",
+                    "first_review": "TEXT", "website": "TEXT", "phone": "TEXT",
+                    "can_claim": "TEXT", "email": "TEXT", "linkedin": "TEXT",
+                    "twitter": "TEXT", "facebook": "TEXT", "youtube": "TEXT",
+                    "instagram": "TEXT", "owner_name": "TEXT", "main_category": "TEXT",
+                    "workday_timing": "TEXT", "is_temporarily_closed": "TEXT",
+                    "address": "TEXT", "latitude": "TEXT", "longitude": "TEXT",
+                    "review_keywords": "TEXT", "link": "TEXT", "contacts_count": "INTEGER DEFAULT 0",
+                    "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                }
+                for col, col_type in expected_cols.items():
+                    if col not in existing_cols:
+                        logger.info(f"Auto-migrating SQLite leads table: adding missing column '{col}'")
+                        cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} {col_type}")
+
                 conn.commit()
         except Exception as e:
             logger.error(f"Local SQLite initialization failed: {e}")
