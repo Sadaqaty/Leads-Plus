@@ -325,8 +325,14 @@ class MapsScraper:
 
                                 details = self._extract_details_template(query, name, item_url, place_id)
                                 
+                                # Extract latitude and longitude from URL or page
+                                current_url = detail_page.url
+                                lat, lng = self._extract_coords(current_url)
+                                
                                 # Parallel attributes extraction
                                 details.update({
+                                    "latitude": lat,
+                                    "longitude": lng,
                                     "reviews": await self._get_reviews_count(detail_page),
                                     "rating": await self._get_rating(detail_page),
                                     "first_review": await self._get_first_review(detail_page),
@@ -424,6 +430,7 @@ class MapsScraper:
     def _extract_details_template(self, query, name, url, place_id):
         return {
             "place_id": place_id, "name": name, "query": query, "link": url,
+            "latitude": "N/A", "longitude": "N/A",
             "is_spending_on_ads": "No", "reviews": "0", "rating": "N/A",
             "first_review": "N/A", "website": "N/A", "phone": "N/A",
             "can_claim": "No", "email": "N/A", "phones": [],
@@ -434,6 +441,18 @@ class MapsScraper:
             "is_temporarily_closed": "No", "closed_on": "N/A", "address": "N/A",
             "review_keywords": "N/A", "contacts_count": 0
         }
+
+    def _extract_coords(self, url):
+        if not url: return "N/A", "N/A"
+        # Method 1: @lat,lng
+        match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', url)
+        if match:
+            return match.group(1), match.group(2)
+        # Method 2: !3dLAT!4dLNG
+        match_3d = re.search(r'!3d(-?\d+\.\d+).*?!4d(-?\d+\.\d+)', url)
+        if match_3d:
+            return match_3d.group(1), match_3d.group(2)
+        return "N/A", "N/A"
 
     def _extract_place_id(self, url):
         match = re.search(r'!1s(0x[a-fA-F0-9]+:[a-fA-F0-9]+)', url)

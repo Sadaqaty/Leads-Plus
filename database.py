@@ -86,6 +86,8 @@ class DatabaseManager:
                         workday_timing TEXT,
                         is_temporarily_closed TEXT,
                         address TEXT,
+                        latitude TEXT,
+                        longitude TEXT,
                         review_keywords TEXT,
                         link TEXT,
                         contacts_count INTEGER DEFAULT 0,
@@ -119,7 +121,7 @@ class DatabaseManager:
             "rating", "first_review", "website", "phone", "can_claim", 
             "email", "linkedin", "twitter", "facebook", "youtube", 
             "instagram", "owner_name", "main_category", "workday_timing", 
-            "is_temporarily_closed", "address", "review_keywords", "link",
+            "is_temporarily_closed", "address", "latitude", "longitude", "review_keywords", "link",
             "contacts_count"
         ]
 

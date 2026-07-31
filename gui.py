@@ -119,7 +119,7 @@ class ModernMapsExtractor(QMainWindow):
             "place_id", "name", "query", "is_spending_on_ads", "reviews", "rating", "first_review", "website", 
             "phone", "can_claim", "email", "contacts_count", "linkedin", "twitter", "facebook", 
             "youtube", "instagram", "owner_name", "main_category", "workday_timing", 
-            "is_temporarily_closed", "address", "review_keywords", "link"
+            "is_temporarily_closed", "address", "latitude", "longitude", "review_keywords", "link"
         ]
 
         self.results = []
