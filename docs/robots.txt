@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://fixare.studio/map-the-map/sitemap.xml
+Sitemap: https://leads-plus.fixare.studio/sitemap.xml
