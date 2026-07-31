@@ -84,14 +84,13 @@ jobs:
             build_script: |
               python -m pip install --upgrade pip
               python -m pip install -r requirements.txt pyinstaller
-              export PLAYWRIGHT_BROWSERS_PATH=ms-playwright
               python -m playwright install chromium
               echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
               echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
-              python -m PyInstaller --noconfirm --windowed --icon=icon.icns --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "ms-playwright:ms-playwright" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
+              python -m PyInstaller --noconfirm --windowed --icon=icon.icns --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
               
-              # Build macOS DMG Installer instantly using native hdiutil
+              # Build macOS DMG Installer natively
               hdiutil create -volname "LeadPulse Installer" -srcfolder "dist/LeadPulse.app" -ov -format UDZO "dist/LeadPulse-Installer.dmg"
               cd dist && zip -r LeadPulse-macOS.zip LeadPulse.app
 
