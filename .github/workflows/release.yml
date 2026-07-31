@@ -25,24 +25,24 @@ jobs:
             build_script: |
               python -m pip install --upgrade pip
               python -m pip install -r requirements.txt || python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase pillow
-              export PLAYWRIGHT_BROWSERS_PATH=./ms-playwright
+              export PLAYWRIGHT_BROWSERS_PATH=ms-playwright
               python -m playwright install chromium
               echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
               echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
-              pyinstaller --noconfirm --onedir --windowed --icon=icon.ico --add-data "${PLAYWRIGHT_PATH};playwright/driver" --add-data "ms-playwright;ms-playwright" --add-data "config.env;." --add-data "icon.png;." --add-data "icon.ico;." --name LeadPulse main.py
+              python -m PyInstaller --noconfirm --onedir --windowed --icon=icon.ico --add-data "${PLAYWRIGHT_PATH};playwright/driver" --add-data "ms-playwright;ms-playwright" --add-data "config.env;." --add-data "icon.png;." --add-data "icon.ico;." --name LeadPulse main.py
               iscc installer.iss
           - os: ubuntu-latest
             asset_name: LeadPulse-Linux-amd64.deb
             build_script: |
               python -m pip install --upgrade pip
               python -m pip install -r requirements.txt || python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase pillow
-              export PLAYWRIGHT_BROWSERS_PATH=./ms-playwright
+              export PLAYWRIGHT_BROWSERS_PATH=ms-playwright
               python -m playwright install --with-deps chromium
               echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
               echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
-              pyinstaller --noconfirm --onedir --windowed --icon=icon.png --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "ms-playwright:ms-playwright" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
+              python -m PyInstaller --noconfirm --onedir --windowed --icon=icon.png --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "ms-playwright:ms-playwright" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
               
               # Build Debian Package (.deb)
               mkdir -p deb_pkg/opt/leadpulse
@@ -84,13 +84,13 @@ jobs:
             build_script: |
               python -m pip install --upgrade pip
               python -m pip install -r requirements.txt || python -m pip install pyinstaller playwright PySide6 bs4 wakepy supabase pillow
-              export PLAYWRIGHT_BROWSERS_PATH=./ms-playwright
+              export PLAYWRIGHT_BROWSERS_PATH=ms-playwright
               python -m playwright install chromium
               brew install create-dmg || true
               echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
               echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
-              pyinstaller --noconfirm --windowed --icon=icon.icns --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "ms-playwright:ms-playwright" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
+              python -m PyInstaller --noconfirm --windowed --icon=icon.icns --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "ms-playwright:ms-playwright" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
               
               # Build macOS DMG Installer
               create-dmg \
