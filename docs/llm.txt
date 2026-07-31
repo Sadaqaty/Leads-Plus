@@ -1,0 +1,11 @@
+# Map the Map Initiative by Fixare Studio
+
+Map the Map is a free global initiative to index, discover, and map business intelligence from Google Maps. 
+
+## Project Highlights
+- **Product Name**: Map the Map (LeadPulse Desktop Extractor Engine)
+- **Organization**: Fixare Studio
+- **Pricing**: 100% Free Desktop Distribution
+- **Supported Platforms**: Windows (`.exe`), Linux (`.deb`), macOS (`.dmg`)
+- **Core Functionality**: Google Maps lead discovery, deep website contact enrichment (emails, phone numbers, social profiles), clean CSV exports, silent headless execution.
+- **Repository**: https://github.com/Sadaqaty/Leads-Plus
