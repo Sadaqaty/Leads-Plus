@@ -214,11 +214,16 @@ class DatabaseManager:
 
     def insert_contact(self, contact_data):
         fields = ["lead_place_id", "name", "role", "email", "phone", "linkedin"]
+        lead_place_id = str(contact_data.get("lead_place_id", "N/A")).strip()
+        if not lead_place_id or lead_place_id in ["N/A", "", "None"]:
+            logger.warning(f"Skipping contact insert: invalid lead_place_id '{lead_place_id}'")
+            return False
         
         # Supabase push
         if self.is_supabase_connected:
             try:
                 clean_contact = {f: contact_data.get(f, "N/A") for f in fields}
+                clean_contact["lead_place_id"] = lead_place_id
                 self.supabase.table("contacts").insert(clean_contact).execute()
             except Exception as e:
                 logger.error(f"Supabase contact insert failed: {e}")

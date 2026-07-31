@@ -125,10 +125,13 @@ def migrate_to_supabase(csv_file=None, db_file=None, batch_size=25):
             for row in contacts_rows:
                 row_dict = dict(zip(contact_cols, row))
                 clean_contact = {f: str(row_dict.get(f, "N/A")).strip() for f in contact_fields}
+                lead_place_id = clean_contact.get("lead_place_id", "N/A")
+                if not lead_place_id or lead_place_id in ["N/A", "", "None"]:
+                    continue
                 try:
                     db_manager.supabase.table("contacts").insert(clean_contact).execute()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Contact migration skipped for place_id '{lead_place_id}': {e}")
             conn.close()
         except Exception as e:
             logger.warning(f"Contacts sync warning: {e}")

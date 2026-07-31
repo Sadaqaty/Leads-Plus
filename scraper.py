@@ -369,16 +369,19 @@ class MapsScraper:
 
                                     details["contacts_count"] = len(contacts)
                                     
-                                    # Save contacts to specialized table
+                                    # Set lead_place_id and find owner_name before saving lead
                                     for c in contacts:
                                         c["lead_place_id"] = place_id
-                                        self.db.insert_contact(c)
-                                        # Also try to set owner_name if found
-                                        if any(x in c["role"].lower() for x in ['founder', 'owner', 'ceo', 'director', 'principal']):
+                                        if any(x in c.get("role", "").lower() for x in ['founder', 'owner', 'ceo', 'director', 'principal']):
                                             details["owner_name"] = c["name"]
 
-                                # Save to DB real-time
+                                # Save lead FIRST so public.leads contains place_id before contacts are inserted
                                 self.db.insert_lead(details)
+
+                                # Save contacts AFTER lead exists in DB
+                                if details["website"] != "N/A" and contacts and place_id and place_id != "N/A":
+                                    for c in contacts:
+                                        self.db.insert_contact(c)
                                 
                                 self.results.append(details)
                                 if place_id != "N/A": global_seen_ids.add(place_id)
