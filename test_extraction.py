@@ -37,20 +37,28 @@ def test_email_filtering():
         print(f"  [PASS] Correctly accepted: {email}")
 
 def test_phone_validation():
-    from scraper import format_and_validate_phone
+    from scraper import format_and_validate_phone, infer_country_code
     print("\nTesting phone number parsing & phonenumbers library validation...")
     
+    # 1. Test country inference
+    assert infer_country_code(address="Manchester, United Kingdom") == "GB", "Inference failed for UK address"
+    assert infer_country_code(address="Nathia Gali, Pakistan") == "PK", "Inference failed for Pakistan address"
+    assert infer_country_code(site_url="http://site.co.uk") == "GB", "Inference failed for .co.uk TLD"
+    assert infer_country_code(query="dentist in manchester") == "GB", "Inference failed for UK query"
+    print("  [PASS] Country inference from address, TLD, and query working perfectly")
+
+    # 2. Test phone parsing & formatting
     test_cases = [
-        ("(212) 555-1212", "US", "http://example.com", "+1 212-555-1212"),
-        ("020 8366 1177", "GB", "http://example.co.uk", "+44 20 8366 1177"),
-        ("+92 300 1234567", "US", "http://example.pk", "+92 300 1234567"),
-        ("0161 834 0000", "GB", "http://manchesterdental.co.uk", "+44 161 834 0000"),
-        ("12345", "US", "http://example.com", None),
-        ("invalid-phone-num", "US", "http://example.com", None)
+        ("(212) 555-1212", "US", "http://example.com", "N/A", "N/A", "+1 212-555-1212"),
+        ("020 8366 1177", "US", "http://example.com", "London, UK", "N/A", "+44 20 8366 1177"),
+        ("0992 355050", "US", "http://hotelelites.com", "Nathia Gali, Pakistan", "hotels in nathiagali", "+92 992 355050"),
+        ("0161 834 0000", "US", "http://thedentistsofdidsbury.com", "Didsbury, Manchester", "dentist in manchester", "+44 161 834 0000"),
+        ("12345", "US", "http://example.com", "N/A", "N/A", None),
+        ("invalid-phone-num", "US", "http://example.com", "N/A", "N/A", None)
     ]
     
-    for raw, default_cc, site_url, expected in test_cases:
-        res = format_and_validate_phone(raw, default_country=default_cc, site_url=site_url)
+    for raw, default_cc, site_url, address, query, expected in test_cases:
+        res = format_and_validate_phone(raw, default_country=default_cc, site_url=site_url, address=address, query=query)
         if expected is None:
             assert res is None, f"Failed: Invalid phone {raw} returned {res}"
             print(f"  [PASS] Correctly rejected invalid phone: {raw}")

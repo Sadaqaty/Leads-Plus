@@ -12,14 +12,84 @@ import phonenumbers
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TLD_COUNTRY_MAP = {
-    'uk': 'GB', 'gb': 'GB', 'us': 'US', 'ca': 'CA', 'au': 'AU',
-    'pk': 'PK', 'in': 'IN', 'de': 'DE', 'fr': 'FR', 'es': 'ES',
-    'it': 'IT', 'nl': 'NL', 'nz': 'NZ', 'za': 'ZA', 'ae': 'AE',
-    'ch': 'CH', 'at': 'AT', 'se': 'SE', 'no': 'NO', 'fi': 'FI'
+ALL_CCTLD_MAP = {
+    'ac': 'AC', 'ad': 'AD', 'ae': 'AE', 'af': 'AF', 'ag': 'AG', 'ai': 'AI', 'al': 'AL', 'am': 'AM',
+    'ao': 'AO', 'aq': 'AQ', 'ar': 'AR', 'as': 'AS', 'at': 'AT', 'au': 'AU', 'aw': 'AW', 'ax': 'AX',
+    'az': 'AZ', 'ba': 'BA', 'bb': 'BB', 'bd': 'BD', 'be': 'BE', 'bf': 'BF', 'bg': 'BG', 'bh': 'BH',
+    'bi': 'BI', 'bj': 'BJ', 'bm': 'BM', 'bn': 'BN', 'bo': 'BO', 'br': 'BR', 'bs': 'BS', 'bt': 'BT',
+    'bw': 'BW', 'by': 'BY', 'bz': 'BZ', 'ca': 'CA', 'cc': 'CC', 'cd': 'CD', 'cf': 'CF', 'cg': 'CG',
+    'ch': 'CH', 'ci': 'CI', 'ck': 'CK', 'cl': 'CL', 'cm': 'CM', 'cn': 'CN', 'co': 'CO', 'cr': 'CR',
+    'cu': 'CU', 'cv': 'CV', 'cw': 'CW', 'cx': 'CX', 'cy': 'CY', 'cz': 'CZ', 'de': 'DE', 'dj': 'DJ',
+    'dk': 'DK', 'dm': 'DM', 'do': 'DO', 'dz': 'DZ', 'ec': 'EC', 'ee': 'EE', 'eg': 'EG', 'er': 'ER',
+    'es': 'ES', 'et': 'ET', 'fi': 'FI', 'fj': 'FJ', 'fk': 'FK', 'fm': 'FM', 'fo': 'FO', 'fr': 'FR',
+    'ga': 'GA', 'gb': 'GB', 'gd': 'GD', 'ge': 'GE', 'gf': 'GF', 'gg': 'GG', 'gh': 'GH', 'gi': 'GI',
+    'gl': 'GL', 'gm': 'GM', 'gn': 'GN', 'gp': 'GP', 'gq': 'GQ', 'gr': 'GR', 'gt': 'GT', 'gu': 'GU',
+    'gw': 'GW', 'gy': 'GY', 'hk': 'HK', 'hn': 'HN', 'hr': 'HR', 'ht': 'HT', 'hu': 'HU', 'id': 'ID',
+    'ie': 'IE', 'il': 'IL', 'im': 'IM', 'in': 'IN', 'io': 'IO', 'iq': 'IQ', 'ir': 'IR', 'is': 'IS',
+    'it': 'IT', 'je': 'JE', 'jm': 'JM', 'jo': 'JO', 'jp': 'JP', 'ke': 'KE', 'kg': 'KG', 'kh': 'KH',
+    'ki': 'KI', 'km': 'KM', 'kn': 'KN', 'kp': 'KP', 'kr': 'KR', 'kw': 'KW', 'ky': 'KY', 'kz': 'KZ',
+    'la': 'LA', 'lb': 'LB', 'lc': 'LC', 'li': 'LI', 'lk': 'LK', 'lr': 'LR', 'ls': 'LS', 'lt': 'LT',
+    'lu': 'LU', 'lv': 'LV', 'ly': 'LY', 'ma': 'MA', 'mc': 'MC', 'md': 'MD', 'me': 'ME', 'mg': 'MG',
+    'mh': 'MH', 'mk': 'MK', 'ml': 'ML', 'mm': 'MM', 'mn': 'MN', 'mo': 'MO', 'mp': 'MP', 'mq': 'MQ',
+    'mr': 'MR', 'ms': 'MS', 'mt': 'MT', 'mu': 'MU', 'mv': 'MV', 'mw': 'MW', 'mx': 'MX', 'my': 'MY',
+    'mz': 'MZ', 'na': 'NA', 'nc': 'NC', 'ne': 'NE', 'nf': 'NF', 'ng': 'NG', 'ni': 'NI', 'nl': 'NL',
+    'no': 'NO', 'np': 'NP', 'nr': 'NR', 'nu': 'NU', 'nz': 'NZ', 'om': 'OM', 'pa': 'PA', 'pe': 'PE',
+    'pf': 'PF', 'pg': 'PG', 'ph': 'PH', 'pk': 'PK', 'pl': 'PL', 'pm': 'PM', 'pn': 'PN', 'pr': 'PR',
+    'ps': 'PS', 'pt': 'PT', 'pw': 'PW', 'py': 'PY', 'qa': 'QA', 're': 'RE', 'ro': 'RO', 'rs': 'RS',
+    'ru': 'RU', 'rw': 'RW', 'sa': 'SA', 'sb': 'SB', 'sc': 'SC', 'sd': 'SD', 'se': 'SE', 'sg': 'SG',
+    'sh': 'SH', 'si': 'SI', 'sk': 'SK', 'sl': 'SL', 'sm': 'SM', 'sn': 'SN', 'so': 'SO', 'sr': 'SR',
+    'ss': 'SS', 'st': 'ST', 'sv': 'SV', 'sx': 'SX', 'sy': 'SY', 'sz': 'SZ', 'tc': 'TC', 'td': 'TD',
+    'tf': 'TF', 'tg': 'TG', 'th': 'TH', 'tj': 'TJ', 'tk': 'TK', 'tl': 'TL', 'tm': 'TM', 'tn': 'TN',
+    'to': 'TO', 'tr': 'TR', 'tt': 'TT', 'tv': 'TV', 'tw': 'TW', 'tz': 'TZ', 'ua': 'UA', 'ug': 'UG',
+    'uk': 'GB', 'us': 'US', 'uy': 'UY', 'uz': 'UZ', 'va': 'VA', 'vc': 'VC', 've': 'VE', 'vg': 'VG',
+    'vi': 'VI', 'vn': 'VN', 'vu': 'VU', 'wf': 'WF', 'ws': 'WS', 'ye': 'YE', 'yt': 'YT', 'za': 'ZA',
+    'zm': 'ZM', 'zw': 'ZW'
 }
 
-def format_and_validate_phone(raw_phone, default_country="US", site_url=None):
+COUNTRY_NAME_MAP = {
+    'pakistan': 'PK', 'uk': 'GB', 'united kingdom': 'GB', 'england': 'GB', 'scotland': 'GB', 'wales': 'GB',
+    'manchester': 'GB', 'london': 'GB', 'birmingham': 'GB', 'leeds': 'GB', 'glasgow': 'GB',
+    'united states': 'US', 'usa': 'US', 'canada': 'CA', 'australia': 'AU', 'india': 'IN',
+    'germany': 'DE', 'france': 'FR', 'spain': 'ES', 'italy': 'IT', 'netherlands': 'NL',
+    'new zealand': 'NZ', 'united arab emirates': 'AE', 'uae': 'AE', 'dubai': 'AE', 'saudi arabia': 'SA',
+    'singapore': 'SG', 'malaysia': 'MY', 'south africa': 'ZA', 'ireland': 'IE', 'brazil': 'BR',
+    'mexico': 'MX', 'japan': 'JP', 'china': 'CN', 'turkey': 'TR', 'türkiye': 'TR', 'thailand': 'TH',
+    'vietnam': 'VN', 'indonesia': 'ID', 'philippines': 'PH', 'egypt': 'EG', 'nathiagali': 'PK',
+    'islamabad': 'PK', 'lahore': 'PK', 'karachi': 'PK', 'rawalpindi': 'PK', 'peshawar': 'PK', 'quetta': 'PK',
+    'multan': 'PK', 'faisalabad': 'PK'
+}
+
+def infer_country_code(address="N/A", query="N/A", site_url=None):
+    """
+    Infer 2-letter ISO country code from Google Maps address, website TLD, or search query.
+    """
+    # 1. Check Google Maps address text
+    if address and address != "N/A":
+        addr_lower = address.lower()
+        for k, cc in COUNTRY_NAME_MAP.items():
+            if re.search(r'\b' + re.escape(k) + r'\b', addr_lower):
+                return cc
+
+    # 2. Check website domain TLD
+    if site_url:
+        try:
+            domain = urlparse(site_url).netloc.lower()
+            tld = domain.split('.')[-1]
+            if tld in ALL_CCTLD_MAP:
+                return ALL_CCTLD_MAP[tld]
+        except Exception:
+            pass
+
+    # 3. Check search query string
+    if query and query != "N/A":
+        q_lower = query.lower()
+        for k, cc in COUNTRY_NAME_MAP.items():
+            if re.search(r'\b' + re.escape(k) + r'\b', q_lower):
+                return cc
+
+    return "US"
+
+def format_and_validate_phone(raw_phone, default_country="US", site_url=None, address=None, query=None):
     """
     Parse, validate, and format phone numbers into international standard format using phonenumbers library.
     Returns formatted phone string if valid, otherwise None.
@@ -28,16 +98,7 @@ def format_and_validate_phone(raw_phone, default_country="US", site_url=None):
         return None
 
     clean_raw = raw_phone.strip()
-    country_code = default_country.upper()
-
-    if site_url:
-        try:
-            domain = urlparse(site_url).netloc.lower()
-            tld = domain.split('.')[-1]
-            if tld in TLD_COUNTRY_MAP:
-                country_code = TLD_COUNTRY_MAP[tld]
-        except Exception:
-            pass
+    country_code = infer_country_code(address=address, query=query, site_url=site_url) or default_country.upper()
 
     try:
         parsed = phonenumbers.parse(clean_raw, country_code)
@@ -114,7 +175,7 @@ class DeepCrawler:
 
         return True
 
-    async def crawl_site(self, base_url, stop_event=None):
+    async def crawl_site(self, base_url, stop_event=None, address=None, query=None):
         found_contacts = []
         found_emails = set()
         found_phones = set()
@@ -143,9 +204,9 @@ class DeepCrawler:
             soup = BeautifulSoup(content, 'html.parser')
             
             found_emails.update(self._extract_emails(content, soup))
-            found_phones.update(self._extract_phones(soup.get_text(), soup))
+            found_phones.update(self._extract_phones(soup.get_text(), soup, site_url=resolved_url, address=address, query=query))
             socials = self._extract_socials(soup, resolved_url)
-            found_contacts.extend(self._extract_team_members(soup, resolved_url))
+            found_contacts.extend(self._extract_team_members(soup, resolved_url, address=address, query=query))
 
             # Discover internal contact/about URLs & social links
             urls_to_crawl = {resolved_url}
@@ -179,9 +240,9 @@ class DeepCrawler:
                     page_soup = BeautifulSoup(html, 'html.parser')
                     
                     found_emails.update(self._extract_emails(html, page_soup))
-                    found_phones.update(self._extract_phones(page_soup.get_text(), page_soup))
+                    found_phones.update(self._extract_phones(page_soup.get_text(), page_soup, site_url=url, address=address, query=query))
                     socials.update(self._extract_socials(page_soup, url))
-                    found_contacts.extend(self._extract_team_members(page_soup, url))
+                    found_contacts.extend(self._extract_team_members(page_soup, url, address=address, query=query))
                 except Exception as e:
                     logger.warning(f"Failed to crawl subpage {url}: {e}")
                 finally:
@@ -292,7 +353,7 @@ class DeepCrawler:
 
         return list(extracted)
 
-    def _extract_phones(self, text, soup=None, site_url=None):
+    def _extract_phones(self, text, soup=None, site_url=None, address=None, query=None):
         extracted = set()
         raw_candidates = set()
 
@@ -327,13 +388,13 @@ class DeepCrawler:
                     raw_candidates.add(p_clean)
 
         for candidate in raw_candidates:
-            validated = format_and_validate_phone(candidate, site_url=site_url)
+            validated = format_and_validate_phone(candidate, site_url=site_url, address=address, query=query)
             if validated:
                 extracted.add(validated)
 
         return extracted
 
-    def _extract_team_members(self, soup, url):
+    def _extract_team_members(self, soup, url, address=None, query=None):
         members = []
         invalid_names = {
             'our team', 'meet the team', 'about us', 'contact us', 'read more', 
@@ -370,7 +431,7 @@ class DeepCrawler:
                 email = email_match.group(0) if email_match and self._is_valid_email(email_match.group(0)) else "N/A"
                 
                 phone_match = re.search(r'\+?[0-9][0-9\s.-]{8,15}', container.get_text())
-                phone_val = format_and_validate_phone(phone_match.group(0), site_url=url) if phone_match else None
+                phone_val = format_and_validate_phone(phone_match.group(0), site_url=url, address=address, query=query) if phone_match else None
                 phone = phone_val if phone_val else "N/A"
 
                 # Require at least one valid detail or meaningful role
@@ -504,7 +565,7 @@ class MapsScraper:
                                     if website != "N/A" and website.startswith("http"):
                                         logger.info(f"Deep crawling website: {website}")
                                         crawler = DeepCrawler(browser)
-                                        contacts, emails, phones, socials = await crawler.crawl_site(website, stop_event=stop_event)
+                                        contacts, emails, phones, socials = await crawler.crawl_site(website, stop_event=stop_event, address=item.get("address"), query=query)
 
                                     # Enrich item with deep crawl results
                                     if emails:
@@ -657,21 +718,21 @@ class MapsScraper:
                 href = await web_btn.get_attribute("href")
                 if href: item["website"] = href
 
-            # Phone
-            phone_btn = await page.query_selector('button[data-item-id^="phone:"]')
-            if phone_btn:
-                phone_aria = await phone_btn.get_attribute("aria-label")
-                if phone_aria:
-                    raw_ph = phone_aria.replace("Phone:", "").strip()
-                    val_ph = format_and_validate_phone(raw_ph, site_url=item.get("website"))
-                    item["phone"] = val_ph if val_ph else raw_ph
-
             # Address
             addr_btn = await page.query_selector('button[data-item-id="address"]')
             if addr_btn:
                 addr_aria = await addr_btn.get_attribute("aria-label")
                 if addr_aria:
                     item["address"] = addr_aria.replace("Address:", "").strip()
+
+            # Phone
+            phone_btn = await page.query_selector('button[data-item-id^="phone:"]')
+            if phone_btn:
+                phone_aria = await phone_btn.get_attribute("aria-label")
+                if phone_aria:
+                    raw_ph = phone_aria.replace("Phone:", "").strip()
+                    val_ph = format_and_validate_phone(raw_ph, site_url=item.get("website"), address=item.get("address"), query=query)
+                    item["phone"] = val_ph if val_ph else raw_ph
 
             # Coordinates (latitude & longitude)
             coord_match = re.search(r'!3d(-?[0-9\.]+)!4d(-?[0-9\.]+)', url)
