@@ -15,6 +15,7 @@ def build():
         "--icon", os.path.join(base_dir, "icon.ico"),
         "--add-data", f"{os.path.join(base_dir, 'icon.ico')}{os.pathsep}.",
         "--add-data", f"{os.path.join(base_dir, 'icon.png')}{os.pathsep}.",
+        "--add-data", f"{os.path.join(base_dir, 'assets')}{os.pathsep}assets",
         "--add-data", f"{os.path.join(base_dir, 'config.env.example')}{os.pathsep}.",
     ]
 
@@ -26,6 +27,7 @@ def build():
         "--hidden-import", "playwright",
         "--hidden-import", "playwright.async_api",
         "--hidden-import", "PySide6",
+        "--hidden-import", "PySide6.QtSvg",
         "--hidden-import", "database",
         "--hidden-import", "scraper",
         "--hidden-import", "wakepy",

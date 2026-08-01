@@ -7,3 +7,4 @@ wakepy
 pyinstaller
 supabase
 pillow
+pefile

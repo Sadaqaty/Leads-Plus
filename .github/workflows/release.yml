@@ -30,7 +30,7 @@ jobs:
               echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
               echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
-              python -m PyInstaller --noconfirm --onedir --windowed --icon=icon.ico --add-data "${PLAYWRIGHT_PATH};playwright/driver" --add-data "ms-playwright;ms-playwright" --add-data "config.env;." --add-data "icon.png;." --add-data "icon.ico;." --name LeadPulse main.py
+              python -m PyInstaller --noconfirm --onedir --windowed --icon=icon.ico --add-data "${PLAYWRIGHT_PATH};playwright/driver" --add-data "ms-playwright;ms-playwright" --add-data "assets;assets" --add-data "config.env;." --add-data "icon.png;." --add-data "icon.ico;." --name LeadPulse main.py
               iscc installer.iss
           - os: ubuntu-latest
             asset_name: LeadPulse-Linux-amd64.deb
@@ -42,7 +42,7 @@ jobs:
               echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
               echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
-              python -m PyInstaller --noconfirm --onedir --windowed --icon=icon.png --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "ms-playwright:ms-playwright" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
+              python -m PyInstaller --noconfirm --onedir --windowed --icon=icon.png --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "ms-playwright:ms-playwright" --add-data "assets:assets" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
               
               # Build Debian Package (.deb)
               mkdir -p deb_pkg/opt/leadpulse
@@ -88,7 +88,7 @@ jobs:
               echo "SUPABASE_URL=${SUPABASE_URL}" > config.env
               echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
-              python -m PyInstaller --noconfirm --windowed --icon=icon.icns --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
+              python -m PyInstaller --noconfirm --windowed --icon=icon.icns --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "assets:assets" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
               
               # Build macOS DMG Installer natively
               hdiutil create -volname "LeadPulse Installer" -srcfolder "dist/LeadPulse.app" -ov -format UDZO "dist/LeadPulse-Installer.dmg"

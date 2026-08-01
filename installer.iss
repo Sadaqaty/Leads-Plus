@@ -11,6 +11,7 @@ AllowNoIcons=yes
 OutputDir=dist_installer
 OutputBaseFilename=LeadPulse-Installer-Setup
 SetupIconFile=icon.ico
+UninstallDisplayIcon={app}\icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -28,9 +29,9 @@ Source: "icon.png"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.env.example"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\LeadPulse Enterprise Extractor"; Filename: "{app}\LeadPulse.exe"; IconFilename: "{app}\icon.ico"
+Name: "{group}\LeadPulse Enterprise Extractor"; Filename: "{app}\LeadPulse.exe"; IconFilename: "{app}\icon.ico"; IconIndex: 0
 Name: "{group}\{cm:UninstallProgram,LeadPulse Enterprise Extractor}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\LeadPulse Enterprise Extractor"; Filename: "{app}\LeadPulse.exe"; Tasks: desktopicon; IconFilename: "{app}\icon.ico"
+Name: "{autodesktop}\LeadPulse Enterprise Extractor"; Filename: "{app}\LeadPulse.exe"; Tasks: desktopicon; IconFilename: "{app}\icon.ico"; IconIndex: 0
 
 [Run]
 Filename: "{app}\LeadPulse.exe"; Description: "{cm:LaunchProgram,LeadPulse Enterprise Extractor}"; Flags: nowait postinstall skipifsilent
