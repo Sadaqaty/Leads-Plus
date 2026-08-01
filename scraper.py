@@ -4,8 +4,9 @@ import json
 import logging
 import re
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, unquote
 from database import DatabaseManager
+from email_validator import validate_email, EmailNotValidError
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,12 +16,62 @@ class DeepCrawler:
         self.browser = browser
         self.junk_patterns = [
             r'sentry.*\.io', r'wixpress\.com', r'example\.com', r'domain\.com', r'yourdomain\.com',
-            r'schema\.org', r'bootstrap', r'jquery', r'wordpress', r'github', r'gravatar',
+            r'mysite\.com', r'schema\.org', r'bootstrap', r'jquery', r'wordpress', r'github', r'gravatar',
             r'\.png$', r'\.jpg$', r'\.jpeg$', r'\.gif$', r'\.svg$', r'\.webp$', r'2x-',
             r'noreply', r'no-reply', r'donotreply', r'^test@', r'^demo@', r'^user@', r'^you@',
             r'^youremail@', r'^name@', r'settlement', r'facebook\.com', r'instagram\.com',
             r'developers\.facebook', r'privacy', r'policy', r'terms'
         ]
+
+    def _is_valid_email(self, email):
+        """Validate email syntax with email-validator and filter out placeholder/dummy emails."""
+        if not email or not isinstance(email, str):
+            return False
+        email = email.lower().strip().rstrip('.')
+
+        # 1. RFC syntax validation via email-validator library
+        try:
+            valid = validate_email(email, check_deliverability=False)
+            email = valid.normalized
+        except EmailNotValidError:
+            return False
+
+        # 2. Length check & obfuscated hash emails (e.g. Sentry/Wix hashes)
+        if len(email) >= 60 or len(re.findall(r'[0-9]{5,}', email)) >= 2:
+            return False
+
+        # 3. Check for image/media extensions mistakenly captured as emails
+        if re.search(r'\.(png|jpg|jpeg|gif|svg|webp|pdf|css|js|woff|ttf|eot)$', email, re.I):
+            return False
+
+        # 4. Check dummy domains
+        try:
+            local_part, domain_part = email.split('@', 1)
+        except ValueError:
+            return False
+
+        dummy_domains = {
+            'example.com', 'example.org', 'example.net', 'mysite.com', 'yourdomain.com',
+            'domain.com', 'sample.com', 'placeholder.com', 'test.com', 'email.com',
+            'site.com', 'sentry.io', 'wixpress.com', 'schema.org', 'bootstrap.com',
+            'jquery.com', 'gravatar.com', 'wordpress.org', 'wordpress.com'
+        }
+        if domain_part in dummy_domains or any(domain_part.endswith('.' + d) for d in dummy_domains):
+            return False
+
+        # 5. Check dummy usernames
+        dummy_users = {
+            'demo', 'test', 'user', 'you', 'yourname', 'username',
+            'noreply', 'no-reply', 'donotreply', 'sample', 'placeholder'
+        }
+        if local_part in dummy_users:
+            return False
+
+        # 6. Check regex junk patterns
+        if any(re.search(jp, email) for jp in self.junk_patterns):
+            return False
+
+        return True
 
     async def crawl_site(self, base_url, stop_event=None):
         found_contacts = []
@@ -33,21 +84,30 @@ class DeepCrawler:
 
         page = None
         try:
-            # 1. Discover key URLs
+            # 1. Discover key URLs & load homepage
             page = await self.browser.new_page()
-            # Resolve redirects
             await page.goto(base_url, timeout=20000, wait_until="domcontentloaded")
             
-            # Step 1: Scroll home page
+            # Wait for network idle or fallback delay for SPA/dynamic JavaScript rendering
+            try:
+                await page.wait_for_load_state("networkidle", timeout=3000)
+            except Exception:
+                pass
+            await asyncio.sleep(1)
+
+            # Scroll home page to trigger lazy loading
             await self._scroll_page(page)
             resolved_url = page.url
             content = await page.content()
             soup = BeautifulSoup(content, 'html.parser')
             
-            # Discover URLs & Socials
-            urls_to_crawl = {resolved_url}
+            found_emails.update(self._extract_emails(content, soup))
+            found_phones.update(self._extract_phones(soup.get_text(), soup))
             socials = self._extract_socials(soup, resolved_url)
-            
+            found_contacts.extend(self._extract_team_members(soup, resolved_url))
+
+            # Discover internal contact/about URLs & social links
+            urls_to_crawl = {resolved_url}
             for a in soup.find_all('a', href=True):
                 href = a['href']
                 abs_url = urljoin(resolved_url, href)
@@ -67,13 +127,18 @@ class DeepCrawler:
                 try:
                     sub_page = await self.browser.new_page()
                     await sub_page.goto(url, timeout=15000, wait_until="domcontentloaded")
+                    try:
+                        await sub_page.wait_for_load_state("networkidle", timeout=3000)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(1)
                     await self._scroll_page(sub_page)
                     
                     html = await sub_page.content()
                     page_soup = BeautifulSoup(html, 'html.parser')
                     
-                    found_emails.update(self._extract_emails(html))
-                    found_phones.update(self._extract_phones(page_soup.get_text()))
+                    found_emails.update(self._extract_emails(html, page_soup))
+                    found_phones.update(self._extract_phones(page_soup.get_text(), page_soup))
                     socials.update(self._extract_socials(page_soup, url))
                     found_contacts.extend(self._extract_team_members(page_soup, url))
                 except Exception as e:
@@ -107,7 +172,7 @@ class DeepCrawler:
                 });
             }""")
             await asyncio.sleep(1)
-        except:
+        except Exception:
             pass
 
     def _clean_social_link(self, link):
@@ -151,33 +216,79 @@ class DeepCrawler:
         cleaned = re.sub(r'\s+', ' ', text).strip()
         return cleaned if cleaned else "N/A"
 
-    def _extract_emails(self, html):
-        matches = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)
-        valid_emails = []
-        seen = set()
-        for m in matches:
-            m = m.lower().strip()
-            if m in seen:
-                continue
-            if not any(re.search(jp, m) for jp in self.junk_patterns):
-                if len(re.findall(r'[0-9]{5,}', m)) < 2 and len(m) < 60:
-                    seen.add(m)
-                    valid_emails.append(m)
-        return valid_emails
+    def _extract_emails(self, html, soup=None):
+        extracted = set()
 
-    def _extract_phones(self, text):
-        if not text:
-            return set()
-        # Clean multiline spacing first
-        text = re.sub(r'\s+', ' ', text)
-        phone_matches = re.findall(r'\+?[0-9][0-9\s.-]{8,15}', text)
-        cleaned = set()
-        for p in phone_matches:
-            p_clean = re.sub(r'\s+', ' ', p).strip()
-            digit_count = len(re.sub(r'[^\d]', '', p_clean))
-            if 9 <= digit_count <= 15:
-                cleaned.add(p_clean)
-        return cleaned
+        # 1. Extract mailto: hrefs if BeautifulSoup soup provided
+        if soup:
+            for a in soup.find_all('a', href=re.compile(r'^mailto:', re.I)):
+                href = a['href']
+                email_part = href.split('mailto:')[-1].split('?')[0].strip()
+                if self._is_valid_email(email_part):
+                    extracted.add(email_part.lower())
+
+        # 2. Extract JSON-LD script emails
+        if soup:
+            for script in soup.find_all('script', type='application/ld+json'):
+                try:
+                    data = json.loads(script.string or '')
+                    if isinstance(data, dict):
+                        em = data.get('email')
+                        if em and isinstance(em, str) and self._is_valid_email(em):
+                            extracted.add(em.lower())
+                except Exception:
+                    pass
+
+        # 3. Unobfuscate [at] and (at) patterns
+        unobfuscated_html = re.sub(r'\[at\]|\(at\)|\s+at\s+', '@', html, flags=re.I)
+        unobfuscated_html = re.sub(r'\[dot\]|\(dot\)|\s+dot\s+', '.', unobfuscated_html, flags=re.I)
+
+        # 4. Standard regex extraction
+        matches = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', unobfuscated_html)
+        for m in matches:
+            if self._is_valid_email(m):
+                extracted.add(m.lower())
+
+        return list(extracted)
+
+    def _extract_phones(self, text, soup=None):
+        extracted = set()
+
+        # 1. Extract tel: hrefs if BeautifulSoup soup provided
+        if soup:
+            for a in soup.find_all('a', href=re.compile(r'^tel:', re.I)):
+                href = a['href']
+                phone_part = href.split('tel:')[-1].split('?')[0].strip()
+                phone_part = re.sub(r'\s+', ' ', phone_part).strip()
+                digit_count = len(re.sub(r'[^\d]', '', phone_part))
+                if 9 <= digit_count <= 15:
+                    extracted.add(phone_part)
+
+        # 2. Extract JSON-LD script telephones
+        if soup:
+            for script in soup.find_all('script', type='application/ld+json'):
+                try:
+                    data = json.loads(script.string or '')
+                    if isinstance(data, dict):
+                        ph = data.get('telephone')
+                        if ph and isinstance(ph, str):
+                            digit_count = len(re.sub(r'[^\d]', '', ph))
+                            if 9 <= digit_count <= 15:
+                                extracted.add(ph.strip())
+                except Exception:
+                    pass
+
+        # 3. Plain text regex matches
+        if text:
+            text_clean = re.sub(r'\s+', ' ', text)
+            phone_matches = re.findall(r'\+?[0-9][0-9\s.-]{8,15}', text_clean)
+            for p in phone_matches:
+                p_clean = re.sub(r'\s+', ' ', p).strip()
+                digit_count = len(re.sub(r'[^\d]', '', p_clean))
+                if 9 <= digit_count <= 15:
+                    extracted.add(p_clean)
+
+        return extracted
 
     def _extract_team_members(self, soup, url):
         members = []
@@ -206,7 +317,7 @@ class DeepCrawler:
                 
                 # Check for direct email/phone in container
                 email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', container.get_text())
-                email = email_match.group(0) if email_match else "N/A"
+                email = email_match.group(0) if email_match and self._is_valid_email(email_match.group(0)) else "N/A"
                 
                 phone_match = re.search(r'\+?[0-9][0-9\s.-]{8,15}', container.get_text())
                 phone = phone_match.group(0) if phone_match else "N/A"
@@ -259,347 +370,203 @@ class MapsScraper:
                 logger.warning(f"Initial browser launch failed ({launch_err}). Auto-installing Playwright Chromium binaries...")
                 ensure_playwright_browsers()
                 browser = await p.chromium.launch(headless=headless)
-            context = await browser.new_context(
-                viewport={'width': 1280, 'height': 800},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-            page = await context.new_page()
-            
-            total_queries = len(queries)
-            global_seen_ids = set()
-            global_seen_names = set()
-            
-            for query_idx, query in enumerate(queries, 1):
-                if stop_event and stop_event.is_set(): break
+
+            self.browser = browser
+
+            for q_idx, query in enumerate(queries, 1):
+                if stop_event and stop_event.is_set():
+                    break
+                    
+                logger.info(f"Processing query [{q_idx}/{len(queries)}]: {query}")
+                page = await browser.new_page()
                 
-                logger.info(f"Processing query [{query_idx}/{total_queries}]: {query}")
                 try:
-                    # Clear search before new query
-                    clear_btn = await page.query_selector('button.gsst_a')
-                    if clear_btn: await clear_btn.click()
-                    
-                    search_url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}"
-                    await page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
-                    
-                    # Wait for results or input
-                    try:
-                        await page.wait_for_selector('a.hfpxzc, a[href*="/maps/place/"], div[role="feed"]', timeout=12000)
-                    except:
-                        search_box = await page.wait_for_selector('input#searchboxinput, input[name="q"]', timeout=5000)
-                        if search_box:
-                            await search_box.click(click_count=3)
-                            await page.keyboard.press("Backspace")
-                            await search_box.fill(query)
-                            await page.keyboard.press("Enter")
-                            await page.wait_for_selector('a.hfpxzc, a[href*="/maps/place/"], div[role="feed"]', timeout=12000)
-                except Exception as e:
-                    logger.error(f"Search failed for {query}: {e}")
-                    continue
+                    await page.goto("https://www.google.com/maps", timeout=30000)
+                    await page.fill("input#searchboxinput", query)
+                    await page.keyboard.press("Enter")
+                    await page.wait_for_timeout(3000)
 
-                extracted_count = 0
-                consecutive_no_new = 0
-                
-                while extracted_count < total_results:
-                    if stop_event and stop_event.is_set(): break
-                    
-                    # Scroll to load more items
-                    await self._scroll_list(page)
-                    items = await page.query_selector_all('a.hfpxzc, a[href*="/maps/place/"]')
-                    
-                    if not items:
-                        # Try one more scroll if we don't see items immediately
-                        await self._scroll_list(page)
-                        items = await page.query_selector_all('a.hfpxzc, a[href*="/maps/place/"]')
-                        if not items:
-                            consecutive_no_new += 1
-                            if consecutive_no_new > 8: break
-                            continue
+                    # Scroll through search result list panel
+                    await page.wait_for_selector('div[role="feed"]', timeout=10000)
 
-                    processed_any_new = False
-                    for item in items:
-                        if stop_event and stop_event.is_set(): break
-                        if extracted_count >= total_results: break
+                    scraped_count = 0
+                    previous_height = 0
+                    stuck_counter = 0
+
+                    while scraped_count < total_results:
+                        if stop_event and stop_event.is_set():
+                            break
+
+                        # Find place links in results list
+                        elements = await page.query_selector_all('a[href*="/maps/place/"]')
                         
-                        try:
-                            name = await item.get_attribute('aria-label')
-                            item_url = await item.get_attribute('href')
-                            if not item_url: continue
-                            place_id = self._extract_place_id(item_url)
-                            
-                            if not name: continue
-                                
-                            # Robust duplicate check (both ID and Name)
-                            is_duplicate = (place_id != "N/A" and place_id in global_seen_ids) or (name in global_seen_names)
-                            if is_duplicate:
+                        for elem in elements:
+                            if scraped_count >= total_results:
+                                break
+                            if stop_event and stop_event.is_set():
+                                break
+
+                            try:
+                                place_url = await elem.get_attribute("href")
+                                if not place_url:
+                                    continue
+
+                                # Open place detail view
+                                detail_page = await browser.new_page()
+                                await detail_page.goto(place_url, timeout=20000, wait_until="domcontentloaded")
+                                await detail_page.wait_for_timeout(1500)
+
+                                item = await self._parse_place_details(detail_page, query)
+                                await detail_page.close()
+
+                                if item and item.get("place_id") != "N/A":
+                                    # Deep web crawl if website is present
+                                    website = item.get("website", "N/A")
+                                    contacts = []
+                                    emails = set()
+                                    phones = set()
+                                    socials = {}
+
+                                    if website != "N/A" and website.startswith("http"):
+                                        logger.info(f"Deep crawling website: {website}")
+                                        crawler = DeepCrawler(browser)
+                                        contacts, emails, phones, socials = await crawler.crawl_site(website, stop_event=stop_event)
+
+                                    # Enrich item with deep crawl results
+                                    if emails:
+                                        valid_email_list = list(emails)
+                                        item["email"] = valid_email_list[0]
+                                        item["contacts_count"] = len(valid_email_list)
+                                    if phones and item.get("phone") == "N/A":
+                                        item["phone"] = list(phones)[0]
+                                        
+                                    for s_name, s_url in socials.items():
+                                        if item.get(s_name) == "N/A":
+                                            item[s_name] = s_url
+
+                                    # Save Lead to Supabase & SQLite
+                                    self.db.insert_lead(item)
+
+                                    # Save discovered Contacts
+                                    for c in contacts:
+                                        c["lead_place_id"] = item["place_id"]
+                                        self.db.insert_contact(c)
+
+                                    scraped_count += 1
+                                    logger.info(f"Successfully extracted [{scraped_count}/{total_results}]: {item.get('name')}")
+
+                                    if callback:
+                                        meta = {
+                                            "query_idx": q_idx,
+                                            "total_queries": len(queries),
+                                            "query_name": query,
+                                            "current_count": scraped_count,
+                                            "max_results": total_results
+                                        }
+                                        await callback(item, meta)
+
+                            except Exception as elem_err:
+                                logger.warning(f"Error parsing place item: {elem_err}")
                                 continue
 
-                            logger.info(f"Query {query_idx}/{total_queries} | item {extracted_count + 1}: {name}")
-                            
-                            # Detailed extraction in isolated page
-                            detail_page = None
-                            try:
-                                detail_page = await context.new_page()
-                                await detail_page.goto(item_url, wait_until="domcontentloaded", timeout=30000)
-                                await detail_page.wait_for_selector('h1.DUwDvf', timeout=15000)
-                                await asyncio.sleep(0.5) # Slight pause for rendering
+                        # Scroll feed to load more places
+                        feed = await page.query_selector('div[role="feed"]')
+                        if feed:
+                            current_height = await feed.evaluate("node => node.scrollHeight")
+                            await feed.evaluate("node => node.scrollBy(0, 1000)")
+                            await page.wait_for_timeout(2000)
 
-                                details = self._extract_details_template(query, name, item_url, place_id)
-                                
-                                # Extract latitude and longitude from URL or page
-                                current_url = detail_page.url
-                                lat, lng = self._extract_coords(current_url)
-                                
-                                # Parallel attributes extraction
-                                details.update({
-                                    "latitude": lat,
-                                    "longitude": lng,
-                                    "reviews": await self._get_reviews_count(detail_page),
-                                    "rating": await self._get_rating(detail_page),
-                                    "first_review": await self._get_first_review(detail_page),
-                                    "website": await self._get_attr(detail_page, 'a[data-item-id="authority"]', 'href'),
-                                    "phone": self._clean_text(await self._get_text(detail_page, 'button[data-item-id^="phone:tel:"]')),
-                                    "can_claim": await self._check_exists(detail_page, 'button:has-text("Claim this business")'),
-                                    "phones": [self._clean_text(await self._get_text(detail_page, 'button[data-item-id^="phone:tel:"]'))],
-                                    "linkedin": await self._find_social(detail_page, "linkedin.com"),
-                                    "twitter": await self._find_social(detail_page, "twitter.com/"),
-                                    "facebook": await self._find_social(detail_page, "facebook.com/"),
-                                    "youtube": await self._find_social(detail_page, "youtube.com/"),
-                                    "instagram": await self._find_social(detail_page, "instagram.com/"),
-                                    "main_category": await self._get_text(detail_page, 'button.DkEaL'),
-                                    "workday_timing": await self._get_timing(detail_page),
-                                    "address": self._clean_text(await self._get_text(detail_page, 'button[data-item-id="address"]')),
-                                    "review_keywords": await self._get_review_keywords(detail_page),
-                                })
+                            if current_height == previous_height:
+                                stuck_counter += 1
+                                if stuck_counter >= 3:
+                                    logger.info(f"Stuck on stale results for query: {query}. Moving on.")
+                                    break
+                            else:
+                                stuck_counter = 0
+                            previous_height = current_height
 
-                                if details["website"] != "N/A" and not (stop_event and stop_event.is_set()):
-                                    logger.info(f"Deep crawling website: {details['website']}")
-                                    crawler = DeepCrawler(browser)
-                                    contacts, emails, phones, socials = await crawler.crawl_site(details["website"], stop_event=stop_event)
-                                    
-                                    # Update leads table fields with aggregated data
-                                    if emails:
-                                        details["email"] = ", ".join(list(emails))
-                                    if phones:
-                                        details["phone"] = ", ".join(list(phones))
-                                    
-                                    # Update Socials from crawler if not found in Maps
-                                    for platform, link in socials.items():
-                                        if details.get(platform) == "N/A":
-                                            details[platform] = link
+                except Exception as query_err:
+                    logger.error(f"Error executing query '{query}': {query_err}")
+                finally:
+                    await page.close()
 
-                                    details["contacts_count"] = len(contacts)
-                                    
-                                    # Set lead_place_id and find owner_name before saving lead
-                                    for c in contacts:
-                                        c["lead_place_id"] = place_id
-                                        if any(x in c.get("role", "").lower() for x in ['founder', 'owner', 'ceo', 'director', 'principal']):
-                                            details["owner_name"] = c["name"]
-
-                                # Save lead FIRST so public.leads contains place_id before contacts are inserted
-                                self.db.insert_lead(details)
-
-                                # Save contacts AFTER lead exists in DB
-                                if details["website"] != "N/A" and contacts and place_id and place_id != "N/A":
-                                    for c in contacts:
-                                        self.db.insert_contact(c)
-                                
-                                self.results.append(details)
-                                if place_id != "N/A": global_seen_ids.add(place_id)
-                                global_seen_names.add(name)
-                                
-                                extracted_count += 1
-                                processed_any_new = True
-                                logger.info(f"Successfully extracted [{extracted_count}/{total_results}]: {name}")
-                                
-                                if callback:
-                                    await callback(details, {
-                                        "query_idx": query_idx,
-                                        "total_queries": total_queries,
-                                        "query_name": query,
-                                        "current_count": extracted_count,
-                                        "total_results": total_results
-                                    })
-                                        
-                            except Exception as e:
-                                logger.warning(f"Error processing {name}: {e}")
-                            finally:
-                                if detail_page: await detail_page.close()
-                                    
-                        except Exception as item_err:
-                            logger.error(f"Outer loop item error: {item_err}")
-                            continue
-
-                    if processed_any_new:
-                        consecutive_no_new = 0
-                    else:
-                        consecutive_no_new += 1
-                        # Break faster if stuck on duplicates or empty
-                        if consecutive_no_new >= 6:
-                            logger.info(f"Stuck on stale results for query: {query}. Moving on.")
-                            break
-                
             await browser.close()
-            return self.results
 
-    async def _scroll_list(self, page):
-        feed = await page.query_selector('div[role="feed"]')
-        if feed:
-            await feed.evaluate('element => element.scrollBy(0, 2000)')
-            await asyncio.sleep(2)
-        else:
-            await page.mouse.wheel(0, 2000)
-            await asyncio.sleep(2)
-
-    def _extract_details_template(self, query, name, url, place_id):
-        return {
-            "place_id": place_id, "name": name, "query": query, "link": url,
-            "latitude": "N/A", "longitude": "N/A",
-            "is_spending_on_ads": "No", "reviews": "0", "rating": "N/A",
-            "first_review": "N/A", "website": "N/A", "phone": "N/A",
-            "can_claim": "No", "email": "N/A", "phones": [],
-            "linkedin": "N/A", "twitter": "N/A", "facebook": "N/A",
-            "youtube": "N/A", "instagram": "N/A", "owner_name": "N/A",
-            "owner_profile_link": "N/A", "featured_image": "N/A",
-            "main_category": "N/A", "categories": "N/A", "workday_timing": "N/A",
-            "is_temporarily_closed": "No", "closed_on": "N/A", "address": "N/A",
-            "review_keywords": "N/A", "contacts_count": 0
+    async def _parse_place_details(self, page, query):
+        item = {
+            "place_id": "N/A", "name": "N/A", "query": query, "is_spending_on_ads": "No",
+            "reviews": "0", "rating": "0.0", "first_review": "N/A", "website": "N/A",
+            "phone": "N/A", "can_claim": "No", "email": "N/A", "contacts_count": 0,
+            "linkedin": "N/A", "twitter": "N/A", "facebook": "N/A", "youtube": "N/A",
+            "instagram": "N/A", "owner_name": "N/A", "main_category": "N/A",
+            "workday_timing": "N/A", "is_temporarily_closed": "No", "address": "N/A",
+            "latitude": "N/A", "longitude": "N/A", "review_keywords": "N/A", "link": page.url
         }
 
-    def _extract_coords(self, url):
-        if not url: return "N/A", "N/A"
-        # Method 1: @lat,lng
-        match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', url)
-        if match:
-            return match.group(1), match.group(2)
-        # Method 2: !3dLAT!4dLNG
-        match_3d = re.search(r'!3d(-?\d+\.\d+).*?!4d(-?\d+\.\d+)', url)
-        if match_3d:
-            return match_3d.group(1), match_3d.group(2)
-        return "N/A", "N/A"
-
-    def _extract_place_id(self, url):
-        match = re.search(r'!1s(0x[a-fA-F0-9]+:[a-fA-F0-9]+)', url)
-        return match.group(1) if match else "N/A"
-
-    async def _get_text(self, page, selector):
         try:
-            el = await page.wait_for_selector(selector, timeout=3000)
-            return await el.inner_text() if el else "N/A"
-        except: return "N/A"
+            # Place ID from URL
+            url = page.url
+            if "!1s" in url:
+                item["place_id"] = url.split("!1s")[1].split("!")[0]
+            elif "place/" in url:
+                item["place_id"] = url.split("place/")[1].split("/")[0]
 
-    async def _get_attr(self, page, selector, attr):
-        try:
-            el = await page.wait_for_selector(selector, timeout=3000)
-            return await el.get_attribute(attr) if el else "N/A"
-        except: return "N/A"
+            # Name
+            h1 = await page.query_selector("h1")
+            if h1:
+                item["name"] = (await h1.inner_text()).strip()
 
-    async def _check_exists(self, page, selector):
-        try:
-            el = await page.query_selector(selector)
-            return "Yes" if el else "No"
-        except: return "No"
+            # Category
+            cat_btn = await page.query_selector('button[data-item-id="address"] + button, button.DkCrMe')
+            if cat_btn:
+                item["main_category"] = (await cat_btn.inner_text()).strip()
 
-    def _clean_text(self, text):
-        if not text or text == "N/A": return "N/A"
-        return text.replace("\ue0b0", "").replace("\ue0c8", "").replace("\n", " ").strip()
-
-    async def _get_rating(self, page):
-        try:
-            el = await page.wait_for_selector('span.ceNzRbc, .F7nice span[aria-hidden="true"]', timeout=3000)
-            text = await el.inner_text() if el else "N/A"
-            match = re.search(r'(\d\.\d)', text)
-            return match.group(1) if match else text
-        except: return "N/A"
-
-    async def _get_reviews_count(self, page):
-        try:
-            # Modern Google Maps DOM selectors for review counts
-            selectors = [
-                'button.HHrUfc',
-                'button[aria-label*="reviews"]',
-                'span[aria-label*="reviews"]',
-                'div.F7nice span:last-child',
-                'button:has-text("reviews")',
-                'button:has-text("review")'
-            ]
-            for sel in selectors:
-                try:
-                    el = await page.query_selector(sel)
-                    if el:
-                        text = await el.inner_text()
-                        if text:
-                            # Extract numbers enclosed in parenthesis, e.g. "(1,250)" or "1,250 reviews"
-                            match = re.search(r'\(?([\d,.]+)\)?\s*(?:reviews|review)?', text, re.I)
-                            if match:
-                                digits_only = re.sub(r'[^\d]', '', match.group(1))
-                                if digits_only:
-                                    return digits_only
-                except:
-                    continue
+            # Rating & Reviews
+            rating_el = await page.query_selector('div.F7v25d, span.ceNzKf')
+            if rating_el:
+                aria = await rating_el.get_attribute("aria-label")
+                if aria:
+                    m = re.search(r'([0-9.]+)', aria)
+                    if m: item["rating"] = m.group(1)
             
-            # Full text fallback on page header area
-            header_text = await page.evaluate('''() => {
-                const el = document.querySelector('div.F7nice') || document.querySelector('h1.DUwDvf')?.parentElement;
-                return el ? el.innerText : '';
-            }''')
-            if header_text:
-                nums = re.findall(r'\(?([\d,]{1,8})\)?\s*(?:reviews|review)?', header_text, re.I)
-                clean_nums = [int(re.sub(r'[^\d]', '', n)) for n in nums if re.sub(r'[^\d]', '', n)]
-                if clean_nums:
-                    return str(max(clean_nums))
-            return "0"
-        except:
-            return "0"
+            reviews_el = await page.query_selector('button[data-tab-index="1"]')
+            if reviews_el:
+                txt = await reviews_el.inner_text()
+                m = re.search(r'([0-9,]+)', txt)
+                if m: item["reviews"] = m.group(1).replace(",", "")
 
-    async def _get_first_review(self, page):
-        try:
-            # More aggressive scroll to trigger review load
-            side_pane = await page.query_selector('div[role="main"]')
-            if side_pane: 
-                await side_pane.evaluate('el => el.scrollBy(0, 800)')
-                await asyncio.sleep(1) # Wait for potential lazy loading
-            
-            # primary modern selector: .wiI7pd
-            # fallback: .wiL7W, .jANv8b
-            review_el = await page.wait_for_selector('span.wiI7pd, div.MyEned span.wiL7W, .jANv8b span', timeout=5000)
-            if review_el:
-                return self._clean_text(await review_el.inner_text())
-            return "N/A"
-        except: return "N/A"
+            # Website
+            web_btn = await page.query_selector('a[data-item-id="authority"]')
+            if web_btn:
+                href = await web_btn.get_attribute("href")
+                if href: item["website"] = href
 
-    async def _find_social(self, page, domain):
-        try:
-            links = await page.query_selector_all(f'a[href*="{domain}"]')
-            if links: return await links[0].get_attribute('href')
-            profiles_header = await page.query_selector('div:has-text("Profiles")')
-            if profiles_header:
-                parent = await profiles_header.evaluate_handle('el => el.parentElement')
-                social_link = await parent.query_selector(f'a[href*="{domain}"]')
-                if social_link: return await social_link.get_attribute('href')
-            return "N/A"
-        except: return "N/A"
+            # Phone
+            phone_btn = await page.query_selector('button[data-item-id^="phone:"]')
+            if phone_btn:
+                phone_aria = await phone_btn.get_attribute("aria-label")
+                if phone_aria:
+                    item["phone"] = phone_aria.replace("Phone:", "").strip()
 
-    async def _get_timing(self, page):
-        try:
-            expand_btn = await page.wait_for_selector('div.t39Bqc', timeout=1000)
-            if expand_btn:
-                await expand_btn.click()
-                await asyncio.sleep(0.5)
-                table = await page.query_selector('table.fontBodyMedium')
-                if table: return await table.inner_text()
-            return await self._get_text(page, 'div.t39Bqc')
-        except: return "N/A"
+            # Address
+            addr_btn = await page.query_selector('button[data-item-id="address"]')
+            if addr_btn:
+                addr_aria = await addr_btn.get_attribute("aria-label")
+                if addr_aria:
+                    item["address"] = addr_aria.replace("Address:", "").strip()
 
-    async def _get_review_keywords(self, page):
-        try:
-            keywords = await page.query_selector_all('span.K70EDP')
-            return ", ".join([await k.inner_text() for k in keywords]) if keywords else "N/A"
-        except: return "N/A"
+            # Coordinates (latitude & longitude)
+            coord_match = re.search(r'!3d(-?[0-9\.]+)!4d(-?[0-9\.]+)', url)
+            if coord_match:
+                item["latitude"] = coord_match.group(1)
+                item["longitude"] = coord_match.group(2)
+            else:
+                ll_match = re.search(r'@(-?[0-9\.]+),(-?[0-9\.]+)', url)
+                if ll_match:
+                    item["latitude"] = ll_match.group(1)
+                    item["longitude"] = ll_match.group(2)
 
-if __name__ == "__main__":
-    scraper = MapsScraper()
-    async def main():
-        # Headless test run
-        results = await scraper.scrape_maps(["Coffee Tokyo"], total_results=2)
-        print(json.dumps(results, indent=2))
-    asyncio.run(main())
+        except Exception as e:
+            logger.warning(f"Error parsing place fields: {e}")
+
+        return item

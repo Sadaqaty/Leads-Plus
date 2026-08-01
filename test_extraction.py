@@ -1,15 +1,21 @@
 import re
 from database import DatabaseManager
+from scraper import DeepCrawler
 import os
 import sqlite3
 
 def test_email_filtering():
-    print("Testing email filtering...")
+    print("Testing email filtering & email-validator integration...")
+    crawler = DeepCrawler(None)
     
     junk_emails = [
         "605a7baede844d278b89dc95ae0a9123@sentry-next.wixpress.com",
         "388fe63e6063cc241ca2a1b0f52622a3@o61919.ingest.us.sentry.io",
         "demo@example.com",
+        "example@mysite.com",
+        "user@yourdomain.com",
+        "test@domain.com",
+        "invalid-email-address-without-at-sign.com",
         "services-settlement@2x-447x245.webp",
         "noreply@company.com",
         "test@test.com"
@@ -18,34 +24,20 @@ def test_email_filtering():
     good_emails = [
         "john.doe@company.com",
         "info@business.com.au",
-        "contact@startup.io"
+        "contact@startup.io",
+        "support@fixare.studio"
     ]
     
-    junk_patterns = [
-        r'sentry', r'ingest', r'wixpress', r'example\.com', r'demo', 
-        r'webp$', r'png$', r'jpg$', r'jpeg$', r'gif$', r'svg$', r'pdf$',
-        r'test', r'placeholder', r'email@email\.com', r'noreply', r'no-reply'
-    ]
-
-    def is_valid(m):
-        m = m.lower().strip()
-        if any(re.search(jp, m) for jp in junk_patterns):
-            return False
-        if len(re.findall(r'[0-9]{5,}', m)) >= 2 or len(m) >= 60:
-            return False
-        return True
-
     for email in junk_emails:
-        assert not is_valid(email), f"Failed: Junk email {email} was accepted"
+        assert not crawler._is_valid_email(email), f"Failed: Junk email {email} was accepted"
         print(f"  [PASS] Correctly rejected: {email}")
 
     for email in good_emails:
-        assert is_valid(email), f"Failed: Good email {email} was rejected"
+        assert crawler._is_valid_email(email), f"Failed: Good email {email} was rejected"
         print(f"  [PASS] Correctly accepted: {email}")
 
 def test_multi_person_extraction():
     from bs4 import BeautifulSoup
-    from scraper import DeepCrawler
     print("\nTesting multi-person extraction logic...")
     
     html = """

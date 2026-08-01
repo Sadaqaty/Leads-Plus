@@ -8,3 +8,4 @@ pyinstaller
 supabase
 pillow
 pefile
+email-validator
