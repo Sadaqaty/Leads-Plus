@@ -105,7 +105,7 @@ class DeepCrawler:
             
             found_emails.update(self._extract_emails(content, soup))
             found_phones.update(self._extract_phones(soup.get_text(), soup, site_url=resolved_url, address=address, query=query))
-            socials = self._extract_socials(soup, resolved_url)
+            socials = self._extract_socials(soup, resolved_url, raw_html=content)
             found_contacts.extend(self._extract_team_members(soup, resolved_url, address=address, query=query))
 
             # Discover internal contact/about URLs & social links
@@ -116,8 +116,8 @@ class DeepCrawler:
                 if urlparse(abs_url).netloc == urlparse(resolved_url).netloc:
                     if any(x in href.lower() for x in ['about', 'team', 'staff', 'people', 'leadership', 'contact', 'careers']):
                         urls_to_crawl.add(abs_url)
-                elif any(x in abs_url.lower() for x in ['facebook.com', 'instagram.com', 'linkedin.com', 'twitter.com', 'youtube.com']):
-                    socials.update(self._extract_socials(BeautifulSoup(f'<a href="{abs_url}"></a>', 'html.parser'), resolved_url))
+                elif any(x in abs_url.lower() for x in ['facebook.com', 'instagram.com', 'linkedin.com', 'twitter.com', 'youtube.com', 'tiktok.com', 'pinterest.com']):
+                    socials.update(self._extract_socials(BeautifulSoup(f'<a href="{abs_url}"></a>', 'html.parser'), resolved_url, raw_html=abs_url))
             
             await page.close()
             page = None # Prevent double close
@@ -140,7 +140,7 @@ class DeepCrawler:
                     
                     found_emails.update(self._extract_emails(html, page_soup))
                     found_phones.update(self._extract_phones(page_soup.get_text(), page_soup, site_url=url, address=address, query=query))
-                    socials.update(self._extract_socials(page_soup, url))
+                    socials.update(self._extract_socials(page_soup, url, raw_html=html))
                     found_contacts.extend(self._extract_team_members(page_soup, url, address=address, query=query))
                 except Exception as e:
                     logger.debug(f"Subpage crawl note for {url}: {e}")
@@ -177,25 +177,69 @@ class DeepCrawler:
             return "N/A"
         return link.strip()
 
-    def _extract_socials(self, soup, base_url):
+    def _extract_socials(self, soup, base_url, raw_html=None):
         socials = {}
         platforms = {
-            'facebook': [r'facebook\.com'],
-            'instagram': [r'instagram\.com'],
-            'linkedin': [r'linkedin\.com'],
-            'twitter': [r'twitter\.com', r'x\.com'],
-            'youtube': [r'youtube\.com']
+            'facebook': [r'facebook\.com/(?:[a-zA-Z0-9_\-\.]+)', r'fb\.com'],
+            'instagram': [r'instagram\.com/(?:[a-zA-Z0-9_\-\.]+)'],
+            'linkedin': [r'linkedin\.com/(?:company|in|pub)/(?:[a-zA-Z0-9_\-\.]+)'],
+            'twitter': [r'twitter\.com/(?:[a-zA-Z0-9_\-\.]+)', r'x\.com/(?:[a-zA-Z0-9_\-\.]+)'],
+            'youtube': [r'youtube\.com/(?:c/|user/|channel/|@)?(?:[a-zA-Z0-9_\-\.]+)'],
+            'tiktok': [r'tiktok\.com/@(?:[a-zA-Z0-9_\-\.]+)'],
+            'pinterest': [r'pinterest\.com/(?:[a-zA-Z0-9_\-\.]+)', r'pin\.it']
         }
         
-        for a in soup.find_all('a', href=True):
-            href = a['href']
-            abs_url = urljoin(base_url, href)
+        # 1. Inspect <a> href tags
+        if soup:
+            for a in soup.find_all('a', href=True):
+                href = a['href']
+                abs_url = urljoin(base_url, href)
+                for platform, patterns in platforms.items():
+                    if platform not in socials:
+                        if any(re.search(pat, abs_url, re.I) for pat in patterns):
+                            cleaned = self._clean_social_link(abs_url)
+                            if cleaned != "N/A":
+                                socials[platform] = cleaned
+
+            # 2. Inspect meta tags & JSON-LD scripts (sameAs)
+            for script in soup.find_all('script', type='application/ld+json'):
+                try:
+                    data = json.loads(script.string or '')
+                    same_as = []
+                    if isinstance(data, dict):
+                        sa = data.get('sameAs')
+                        if isinstance(sa, list): same_as.extend(sa)
+                        elif isinstance(sa, str): same_as.append(sa)
+                    elif isinstance(data, list):
+                        for item in data:
+                            if isinstance(item, dict):
+                                sa = item.get('sameAs')
+                                if isinstance(sa, list): same_as.extend(sa)
+                                elif isinstance(sa, str): same_as.append(sa)
+
+                    for s_url in same_as:
+                        if isinstance(s_url, str):
+                            for platform, patterns in platforms.items():
+                                if platform not in socials:
+                                    if any(re.search(pat, s_url, re.I) for pat in patterns):
+                                        cleaned = self._clean_social_link(s_url)
+                                        if cleaned != "N/A":
+                                            socials[platform] = cleaned
+                except Exception:
+                    pass
+
+        # 3. Fallback raw HTML regex matching
+        if raw_html:
             for platform, patterns in platforms.items():
                 if platform not in socials:
-                    if any(re.search(pat, abs_url, re.I) for pat in patterns):
-                        cleaned = self._clean_social_link(abs_url)
-                        if cleaned != "N/A":
-                            socials[platform] = cleaned
+                    for pat in patterns:
+                        match = re.search(r'https?://(?:www\.)?' + pat, raw_html, re.I)
+                        if match:
+                            cleaned = self._clean_social_link(match.group(0))
+                            if cleaned != "N/A":
+                                socials[platform] = cleaned
+                                break
+
         return socials
 
     def _clean_text(self, text):
@@ -608,7 +652,9 @@ class MapsScraper:
                     not any(k in stxt_lower for k in [
                         "google", "directions", "share", "save", "claim this", 
                         "add a photo", "open 24 hours", "hours", "price", "open ·", 
-                        "closes", "closed", "website", "menu", "appointment", "located in"
+                        "closes", "closed", "website", "menu", "appointment", "located in",
+                        "street", "st", "rd", "ave", "road", "plus code", "rating", "star",
+                        "update results", "search this area", "keyboard", "map data"
                     ])
                 ):
                     item["first_review"] = stxt_clean[:250]
@@ -621,24 +667,40 @@ class MapsScraper:
                     if rev_tab:
                         await rev_tab.click()
                         await page.wait_for_timeout(1500)
-                        tab_snippets = await page.query_selector_all('div.My44vd, span.wi3wfd, div.jftiEf, div[data-review-id], div.K712bc, div.d4r55, div.HVZp2e, span.r75fW')
-                        for s in tab_snippets:
-                            stxt = (await s.inner_text()).strip()
-                            stxt_clean = re.sub(r'\s+', ' ', stxt)
-                            stxt_lower = stxt_clean.lower()
-                            if (
-                                len(stxt_clean) > 20 and
-                                not stxt_clean.startswith("·") and
-                                not stxt_clean.startswith("http") and
-                                not any(k in stxt_lower for k in [
-                                    "google", "directions", "share", "save", "claim this",
-                                    "add a photo", "open 24 hours", "hours", "price", "sort", "filter"
-                                ])
-                            ):
-                                item["first_review"] = stxt_clean[:250]
-                                break
+                        
+                        cards = await page.query_selector_all('div.jftiEf, div[data-review-id]')
+                        for c in cards:
+                            text_el = await c.query_selector('span.wi3wfd, div.My44vd, span.r75fW, div[class*="text"]')
+                            if text_el:
+                                ctxt = (await text_el.inner_text()).strip()
+                                clean_c = re.sub(r'\s+', ' ', ctxt)
+                                if len(clean_c) > 15:
+                                    item["first_review"] = clean_c[:250]
+                                    break
+                            else:
+                                ctxt = (await c.inner_text()).strip()
+                                lines = [l.strip() for l in ctxt.split('\n') if len(l.strip()) > 20 and not any(k in l.lower() for k in ["star", "ago", "like", "share", "response", "owner"])]
+                                if lines:
+                                    item["first_review"] = lines[0][:250]
+                                    break
                 except Exception:
                     pass
+
+            # Check social links directly on Google Maps place details page
+            try:
+                g_social_els = await page.query_selector_all('a[href*="facebook.com"], a[href*="instagram.com"], a[href*="linkedin.com"], a[href*="twitter.com"], a[href*="x.com"], a[href*="youtube.com"]')
+                for g_s in g_social_els:
+                    g_href = await g_s.get_attribute("href")
+                    if g_href:
+                        for p_name, p_pats in [
+                            ('facebook', [r'facebook\.com']), ('instagram', [r'instagram\.com']),
+                            ('linkedin', [r'linkedin\.com']), ('twitter', [r'twitter\.com', r'x\.com']),
+                            ('youtube', [r'youtube\.com'])
+                        ]:
+                            if item.get(p_name, "N/A") == "N/A" and any(re.search(pat, g_href, re.I) for pat in p_pats):
+                                item[p_name] = self._clean_social_link(g_href)
+            except Exception:
+                pass
 
             # Website
             web_btn = await page.query_selector('a[data-item-id="authority"]')
