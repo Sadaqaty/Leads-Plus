@@ -191,9 +191,9 @@ class DatabaseManager:
                             clean_lead[f] = val
 
                     self.supabase.table("leads").insert(clean_lead).execute()
-                    logger.info(f"Stored lead in Supabase: {lead_data.get('name')}")
+                    logger.info(f"Stored lead: {lead_data.get('name')}")
             except Exception as e:
-                logger.error(f"Supabase lead insert failed: {e}. Falling back to local SQL.")
+                logger.error(f"lead insert failed: {e}. Falling back to local SQL.")
 
         # 2. Always persist locally
         return self._insert_lead_local(lead_data, fields, place_id)
@@ -257,14 +257,12 @@ class DatabaseManager:
         if not valid_contacts:
             return True
 
-        # Supabase Bulk Insert (Single HTTP Request)
         if self.is_supabase_connected:
             try:
                 self.supabase.table("contacts").insert(valid_contacts).execute()
             except Exception as e:
-                logger.error(f"Supabase contacts bulk insert failed: {e}")
+                logger.error(f"contacts bulk insert failed: {e}")
 
-        # Local SQLite Bulk Insert
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()

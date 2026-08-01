@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse, unquote
+from urllib.parse import urljoin, urlparse, unquote, quote
 from database import DatabaseManager
 from email_validator import validate_email, EmailNotValidError
 
@@ -390,13 +390,34 @@ class MapsScraper:
                 page = await browser.new_page()
                 
                 try:
-                    await page.goto("https://www.google.com/maps", timeout=30000)
-                    await page.fill("input#searchboxinput", query)
-                    await page.keyboard.press("Enter")
-                    await page.wait_for_timeout(3000)
+                    search_url = f"https://www.google.com/maps/search/{quote(query)}"
+                    await page.goto(search_url, timeout=30000, wait_until="domcontentloaded")
+                    await page.wait_for_timeout(2500)
 
-                    # Scroll through search result list panel
-                    await page.wait_for_selector('div[role="feed"]', timeout=10000)
+                    # Automatically dismiss Google cookie consent overlay if present
+                    try:
+                        consent_btn = await page.query_selector('button[aria-label*="Accept all"], button[aria-label*="I agree"], form[action*="consent"] button, button[aria-label*="Reject all"]')
+                        if consent_btn:
+                            await consent_btn.click()
+                            await page.wait_for_timeout(1000)
+                    except Exception:
+                        pass
+
+                    # Fallback fill search box if direct URL did not trigger search
+                    try:
+                        search_input = await page.query_selector('input#searchboxinput, input.searchboxinput, input[name="q"], input[aria-label*="Search"]')
+                        if search_input and not (await page.query_selector('div[role="feed"], a[href*="/maps/place/"]')):
+                            await search_input.fill(query)
+                            await page.keyboard.press("Enter")
+                            await page.wait_for_timeout(3000)
+                    except Exception:
+                        pass
+
+                    # Wait for search result feed or place links
+                    try:
+                        await page.wait_for_selector('div[role="feed"], a[href*="/maps/place/"]', timeout=15000)
+                    except Exception as wait_err:
+                        logger.warning(f"Wait for feed selector timed out ({wait_err}), proceeding with DOM extraction...")
 
                     scraped_count = 0
                     previous_height = 0
