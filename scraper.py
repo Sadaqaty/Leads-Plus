@@ -7,9 +7,50 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse, unquote, quote
 from database import DatabaseManager
 from email_validator import validate_email, EmailNotValidError
+import phonenumbers
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+TLD_COUNTRY_MAP = {
+    'uk': 'GB', 'gb': 'GB', 'us': 'US', 'ca': 'CA', 'au': 'AU',
+    'pk': 'PK', 'in': 'IN', 'de': 'DE', 'fr': 'FR', 'es': 'ES',
+    'it': 'IT', 'nl': 'NL', 'nz': 'NZ', 'za': 'ZA', 'ae': 'AE',
+    'ch': 'CH', 'at': 'AT', 'se': 'SE', 'no': 'NO', 'fi': 'FI'
+}
+
+def format_and_validate_phone(raw_phone, default_country="US", site_url=None):
+    """
+    Parse, validate, and format phone numbers into international standard format using phonenumbers library.
+    Returns formatted phone string if valid, otherwise None.
+    """
+    if not raw_phone or not isinstance(raw_phone, str):
+        return None
+
+    clean_raw = raw_phone.strip()
+    country_code = default_country.upper()
+
+    if site_url:
+        try:
+            domain = urlparse(site_url).netloc.lower()
+            tld = domain.split('.')[-1]
+            if tld in TLD_COUNTRY_MAP:
+                country_code = TLD_COUNTRY_MAP[tld]
+        except Exception:
+            pass
+
+    try:
+        parsed = phonenumbers.parse(clean_raw, country_code)
+        if phonenumbers.is_possible_number(parsed) and phonenumbers.is_valid_number(parsed):
+            return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
+    except Exception:
+        pass
+
+    digit_count = len(re.sub(r'[^\d]', '', clean_raw))
+    if clean_raw.startswith('+') and 9 <= digit_count <= 15:
+        return clean_raw
+
+    return None
 
 class DeepCrawler:
     def __init__(self, browser):
@@ -251,8 +292,9 @@ class DeepCrawler:
 
         return list(extracted)
 
-    def _extract_phones(self, text, soup=None):
+    def _extract_phones(self, text, soup=None, site_url=None):
         extracted = set()
+        raw_candidates = set()
 
         # 1. Extract tel: hrefs if BeautifulSoup soup provided
         if soup:
@@ -260,9 +302,8 @@ class DeepCrawler:
                 href = a['href']
                 phone_part = href.split('tel:')[-1].split('?')[0].strip()
                 phone_part = re.sub(r'\s+', ' ', phone_part).strip()
-                digit_count = len(re.sub(r'[^\d]', '', phone_part))
-                if 9 <= digit_count <= 15:
-                    extracted.add(phone_part)
+                if phone_part:
+                    raw_candidates.add(phone_part)
 
         # 2. Extract JSON-LD script telephones
         if soup:
@@ -272,9 +313,7 @@ class DeepCrawler:
                     if isinstance(data, dict):
                         ph = data.get('telephone')
                         if ph and isinstance(ph, str):
-                            digit_count = len(re.sub(r'[^\d]', '', ph))
-                            if 9 <= digit_count <= 15:
-                                extracted.add(ph.strip())
+                            raw_candidates.add(ph.strip())
                 except Exception:
                     pass
 
@@ -284,9 +323,13 @@ class DeepCrawler:
             phone_matches = re.findall(r'\+?[0-9][0-9\s.-]{8,15}', text_clean)
             for p in phone_matches:
                 p_clean = re.sub(r'\s+', ' ', p).strip()
-                digit_count = len(re.sub(r'[^\d]', '', p_clean))
-                if 9 <= digit_count <= 15:
-                    extracted.add(p_clean)
+                if p_clean:
+                    raw_candidates.add(p_clean)
+
+        for candidate in raw_candidates:
+            validated = format_and_validate_phone(candidate, site_url=site_url)
+            if validated:
+                extracted.add(validated)
 
         return extracted
 
@@ -327,7 +370,8 @@ class DeepCrawler:
                 email = email_match.group(0) if email_match and self._is_valid_email(email_match.group(0)) else "N/A"
                 
                 phone_match = re.search(r'\+?[0-9][0-9\s.-]{8,15}', container.get_text())
-                phone = phone_match.group(0) if phone_match else "N/A"
+                phone_val = format_and_validate_phone(phone_match.group(0), site_url=url) if phone_match else None
+                phone = phone_val if phone_val else "N/A"
 
                 # Require at least one valid detail or meaningful role
                 if email != "N/A" or phone != "N/A" or linkedin != "N/A" or (role != "N/A" and len(role) < 50):
@@ -618,7 +662,9 @@ class MapsScraper:
             if phone_btn:
                 phone_aria = await phone_btn.get_attribute("aria-label")
                 if phone_aria:
-                    item["phone"] = phone_aria.replace("Phone:", "").strip()
+                    raw_ph = phone_aria.replace("Phone:", "").strip()
+                    val_ph = format_and_validate_phone(raw_ph, site_url=item.get("website"))
+                    item["phone"] = val_ph if val_ph else raw_ph
 
             # Address
             addr_btn = await page.query_selector('button[data-item-id="address"]')

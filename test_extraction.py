@@ -36,6 +36,28 @@ def test_email_filtering():
         assert crawler._is_valid_email(email), f"Failed: Good email {email} was rejected"
         print(f"  [PASS] Correctly accepted: {email}")
 
+def test_phone_validation():
+    from scraper import format_and_validate_phone
+    print("\nTesting phone number parsing & phonenumbers library validation...")
+    
+    test_cases = [
+        ("(212) 555-1212", "US", "http://example.com", "+1 212-555-1212"),
+        ("020 8366 1177", "GB", "http://example.co.uk", "+44 20 8366 1177"),
+        ("+92 300 1234567", "US", "http://example.pk", "+92 300 1234567"),
+        ("0161 834 0000", "GB", "http://manchesterdental.co.uk", "+44 161 834 0000"),
+        ("12345", "US", "http://example.com", None),
+        ("invalid-phone-num", "US", "http://example.com", None)
+    ]
+    
+    for raw, default_cc, site_url, expected in test_cases:
+        res = format_and_validate_phone(raw, default_country=default_cc, site_url=site_url)
+        if expected is None:
+            assert res is None, f"Failed: Invalid phone {raw} returned {res}"
+            print(f"  [PASS] Correctly rejected invalid phone: {raw}")
+        else:
+            assert res == expected or (res and expected in res), f"Failed: Phone {raw} expected {expected}, got {res}"
+            print(f"  [PASS] Correctly parsed & formatted: {raw} -> {res}")
+
 def test_multi_person_extraction():
     from bs4 import BeautifulSoup
     print("\nTesting multi-person extraction logic...")
@@ -123,6 +145,7 @@ def test_database():
 if __name__ == "__main__":
     try:
         test_email_filtering()
+        test_phone_validation()
         test_multi_person_extraction()
         test_database()
         print("\nAll tests passed successfully!")

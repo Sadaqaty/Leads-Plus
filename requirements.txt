@@ -9,3 +9,4 @@ supabase
 pillow
 pefile
 email-validator
+phonenumbers
