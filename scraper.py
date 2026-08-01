@@ -552,19 +552,60 @@ class MapsScraper:
             if cat_btn:
                 item["main_category"] = (await cat_btn.inner_text()).strip()
 
-            # Rating & Reviews
-            rating_el = await page.query_selector('div.F7v25d, span.ceNzKf')
-            if rating_el:
-                aria = await rating_el.get_attribute("aria-label")
-                if aria:
-                    m = re.search(r'([0-9.]+)', aria)
-                    if m: item["rating"] = m.group(1)
-            
-            reviews_el = await page.query_selector('button[data-tab-index="1"]')
-            if reviews_el:
-                txt = await reviews_el.inner_text()
-                m = re.search(r'([0-9,]+)', txt)
-                if m: item["reviews"] = m.group(1).replace(",", "")
+            # 1. Rating & Reviews Count - DOM selectors
+            rev_elements = await page.query_selector_all(
+                'span.ZkP5Je, div.F7v25d, span.ceNzKf, button[aria-label*="review"], '
+                'button[aria-label*="star"], span[aria-label*="review"], span[aria-label*="star"], '
+                'button[data-tab-index="1"], div.fontBodyMedium span'
+            )
+            for el in rev_elements:
+                aria = (await el.get_attribute("aria-label")) or ""
+                txt = (await el.inner_text()).strip()
+                combined = f"{aria} {txt}"
+                
+                if item["rating"] == "0.0":
+                    m_rat = re.search(r'([0-4]\.[0-9]|5\.0)', combined)
+                    if m_rat:
+                        item["rating"] = m_rat.group(1)
+
+                if item["reviews"] == "0":
+                    m_rev = re.search(r'([0-9,]+)\s*reviews?', combined, re.I)
+                    if not m_rev:
+                        m_rev = re.search(r'\(([0-9,]+)\)', combined)
+                    if m_rev:
+                        item["reviews"] = m_rev.group(1).replace(",", "")
+
+            # 2. Rating & Reviews Count - Full HTML Fallback if missing
+            if item["reviews"] == "0" or item["rating"] == "0.0":
+                content = await page.content()
+                if item["rating"] == "0.0":
+                    m_rat = re.search(r'aria-label=[\"\']([0-5]\.[0-9])\s*stars?', content, re.I) or re.search(r'([0-5]\.[0-9])\s*stars?', content, re.I)
+                    if m_rat:
+                        item["rating"] = m_rat.group(1)
+                        
+                if item["reviews"] == "0":
+                    m_rev = (
+                        re.search(r'aria-label=[\"\'][^\"\']*?([0-9,]+)\s+reviews?[\"\']', content, re.I) or
+                        re.search(r'([0-9,]+)\s+reviews', content, re.I) or
+                        re.search(r'\(([0-9,]+)\)\s*<', content)
+                    )
+                    if m_rev:
+                        item["reviews"] = m_rev.group(1).replace(",", "")
+
+            # 3. First Review Snippet Extraction
+            snippet_els = await page.query_selector_all(
+                'div.My44vd, span.wi3wfd, div.jftiEf, div[data-review-id], '
+                'div[class*="review"] span, div.fontBodyMedium span, blockquote, div.K712bc'
+            )
+            for s_el in snippet_els:
+                stxt = (await s_el.inner_text()).strip()
+                if (
+                    len(stxt) > 20 and 
+                    not stxt.startswith("http") and 
+                    not any(k in stxt.lower() for k in ["google", "directions", "share", "save", "claim this", "add a photo", "open 24 hours", "hours", "price"])
+                ):
+                    item["first_review"] = re.sub(r'\s+', ' ', stxt)[:250]
+                    break
 
             # Website
             web_btn = await page.query_selector('a[data-item-id="authority"]')
