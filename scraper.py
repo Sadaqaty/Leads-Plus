@@ -122,18 +122,17 @@ class DeepCrawler:
             await page.close()
             page = None # Prevent double close
 
-            # 2. Crawl discovery URLs (limit to 5)
-            for url in list(urls_to_crawl)[:5]:
+            # 2. Crawl key internal discovery URLs (limit to 2 most relevant: contact/about)
+            sub_candidates = [
+                u for u in urls_to_crawl if u != resolved_url and any(k in u.lower() for k in ['contact', 'about', 'team'])
+            ]
+            for url in sub_candidates[:2]:
                 if stop_event and stop_event.is_set(): break
                 sub_page = None
                 try:
                     sub_page = await self.browser.new_page()
-                    await sub_page.goto(url, timeout=15000, wait_until="domcontentloaded")
-                    try:
-                        await sub_page.wait_for_load_state("networkidle", timeout=3000)
-                    except Exception:
-                        pass
-                    await asyncio.sleep(1)
+                    await sub_page.goto(url, timeout=8000, wait_until="domcontentloaded")
+                    await asyncio.sleep(0.3)
                     await self._scroll_page(sub_page)
                     
                     html = await sub_page.content()
@@ -144,36 +143,24 @@ class DeepCrawler:
                     socials.update(self._extract_socials(page_soup, url))
                     found_contacts.extend(self._extract_team_members(page_soup, url, address=address, query=query))
                 except Exception as e:
-                    logger.warning(f"Failed to crawl subpage {url}: {e}")
+                    logger.debug(f"Subpage crawl note for {url}: {e}")
                 finally:
                     if sub_page: await sub_page.close()
 
         except Exception as e:
-            logger.error(f"Crawling failed for {base_url}: {e}")
+            logger.warning(f"Crawling issue for {base_url}: {e}")
         finally:
             if page: await page.close()
             
         return found_contacts, found_emails, found_phones, socials
 
     async def _scroll_page(self, page):
-        """Scroll down the page to trigger lazy loading."""
+        """Fast scroll down the page to trigger lazy loading."""
         try:
-            await page.evaluate("""async () => {
-                await new Promise((resolve) => {
-                    let totalHeight = 0;
-                    let distance = 100;
-                    let timer = setInterval(() => {
-                        let scrollHeight = document.body.scrollHeight;
-                        window.scrollBy(0, distance);
-                        totalHeight += distance;
-                        if(totalHeight >= scrollHeight || totalHeight > 5000){
-                            clearInterval(timer);
-                            resolve();
-                        }
-                    }, 100);
-                });
-            }""")
-            await asyncio.sleep(1)
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2);")
+            await asyncio.sleep(0.2)
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+            await asyncio.sleep(0.3)
         except Exception:
             pass
 
@@ -540,6 +527,12 @@ class MapsScraper:
         }
 
         try:
+            # Wait briefly for detail header panel to render
+            try:
+                await page.wait_for_selector('h1', timeout=4000)
+            except Exception:
+                pass
+
             # Place ID from URL
             url = page.url
             if "!1s" in url:
@@ -561,7 +554,7 @@ class MapsScraper:
             rev_elements = await page.query_selector_all(
                 'span.ZkP5Je, div.F7v25d, span.ceNzKf, button[aria-label*="review"], '
                 'button[aria-label*="star"], span[aria-label*="review"], span[aria-label*="star"], '
-                'button[data-tab-index="1"], div.fontBodyMedium span'
+                'button[data-tab-index="1"], div.fontBodyMedium span, button.Dx2nRe span, span.UY7F9'
             )
             for el in rev_elements:
                 aria = (await el.get_attribute("aria-label")) or ""
@@ -574,43 +567,78 @@ class MapsScraper:
                         item["rating"] = m_rat.group(1)
 
                 if item["reviews"] == "0":
-                    m_rev = re.search(r'([0-9,]+)\s*reviews?', combined, re.I)
-                    if not m_rev:
-                        m_rev = re.search(r'\(([0-9,]+)\)', combined)
+                    m_rev = re.search(r'([0-9,]+)\s*reviews?', combined, re.I) or re.search(r'\(([0-9,]+)\)', combined)
                     if m_rev:
                         item["reviews"] = m_rev.group(1).replace(",", "")
 
             # 2. Rating & Reviews Count - Full HTML Fallback if missing
-            if item["reviews"] == "0" or item["rating"] == "0.0":
-                content = await page.content()
-                if item["rating"] == "0.0":
-                    m_rat = re.search(r'aria-label=[\"\']([0-5]\.[0-9])\s*stars?', content, re.I) or re.search(r'([0-5]\.[0-9])\s*stars?', content, re.I)
-                    if m_rat:
-                        item["rating"] = m_rat.group(1)
-                        
-                if item["reviews"] == "0":
-                    m_rev = (
-                        re.search(r'aria-label=[\"\'][^\"\']*?([0-9,]+)\s+reviews?[\"\']', content, re.I) or
-                        re.search(r'([0-9,]+)\s+reviews', content, re.I) or
-                        re.search(r'\(([0-9,]+)\)\s*<', content)
-                    )
-                    if m_rev:
-                        item["reviews"] = m_rev.group(1).replace(",", "")
+            content = await page.content()
+            if item["rating"] == "0.0":
+                m_rat = (
+                    re.search(r'class=[\"\']F7v25d[\"\'][^>]*?>\s*([0-5]\.[0-9])', content, re.I) or
+                    re.search(r'aria-label=[\"\']([0-5]\.[0-9])\s*stars?', content, re.I) or
+                    re.search(r'([0-5]\.[0-9])\s*stars?', content, re.I)
+                )
+                if m_rat:
+                    item["rating"] = m_rat.group(1)
+
+            if item["reviews"] == "0":
+                m_rev = (
+                    re.search(r'aria-label=[\"\'][^\"\']*?([0-9,]+)\s+reviews?[\"\']', content, re.I) or
+                    re.search(r'([0-9,]+)\s+(?:Google\s*)?reviews', content, re.I) or
+                    re.search(r'button[^>]*Dx2nRe[^>]*>.*?([0-9,]+)', content, re.I | re.DOTALL) or
+                    re.search(r'\(([0-9,]+)\)\s*(?:<|\s)', content)
+                )
+                if m_rev:
+                    item["reviews"] = m_rev.group(1).replace(",", "")
 
             # 3. First Review Snippet Extraction
             snippet_els = await page.query_selector_all(
                 'div.My44vd, span.wi3wfd, div.jftiEf, div[data-review-id], '
-                'div[class*="review"] span, div.fontBodyMedium span, blockquote, div.K712bc'
+                'div.K712bc, div.d4r55, div.HVZp2e, span.r75fW, blockquote'
             )
             for s_el in snippet_els:
                 stxt = (await s_el.inner_text()).strip()
+                stxt_clean = re.sub(r'\s+', ' ', stxt)
+                stxt_lower = stxt_clean.lower()
                 if (
-                    len(stxt) > 20 and 
-                    not stxt.startswith("http") and 
-                    not any(k in stxt.lower() for k in ["google", "directions", "share", "save", "claim this", "add a photo", "open 24 hours", "hours", "price"])
+                    len(stxt_clean) > 20 and 
+                    not stxt_clean.startswith("·") and
+                    not stxt_clean.startswith("http") and 
+                    not any(k in stxt_lower for k in [
+                        "google", "directions", "share", "save", "claim this", 
+                        "add a photo", "open 24 hours", "hours", "price", "open ·", 
+                        "closes", "closed", "website", "menu", "appointment", "located in"
+                    ])
                 ):
-                    item["first_review"] = re.sub(r'\s+', ' ', stxt)[:250]
+                    item["first_review"] = stxt_clean[:250]
                     break
+
+            # Fallback: Click Reviews tab if first_review is still missing
+            if item["first_review"] == "N/A":
+                try:
+                    rev_tab = await page.query_selector('button[role="tab"][aria-label*="Reviews"], button[aria-label*="Reviews for"], button:has-text("Reviews")')
+                    if rev_tab:
+                        await rev_tab.click()
+                        await page.wait_for_timeout(1500)
+                        tab_snippets = await page.query_selector_all('div.My44vd, span.wi3wfd, div.jftiEf, div[data-review-id], div.K712bc, div.d4r55, div.HVZp2e, span.r75fW')
+                        for s in tab_snippets:
+                            stxt = (await s.inner_text()).strip()
+                            stxt_clean = re.sub(r'\s+', ' ', stxt)
+                            stxt_lower = stxt_clean.lower()
+                            if (
+                                len(stxt_clean) > 20 and
+                                not stxt_clean.startswith("·") and
+                                not stxt_clean.startswith("http") and
+                                not any(k in stxt_lower for k in [
+                                    "google", "directions", "share", "save", "claim this",
+                                    "add a photo", "open 24 hours", "hours", "price", "sort", "filter"
+                                ])
+                            ):
+                                item["first_review"] = stxt_clean[:250]
+                                break
+                except Exception:
+                    pass
 
             # Website
             web_btn = await page.query_selector('a[data-item-id="authority"]')
