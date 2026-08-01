@@ -292,7 +292,12 @@ class DeepCrawler:
 
     def _extract_team_members(self, soup, url):
         members = []
-        # Heuristic: look for containers that might hold person info
+        invalid_names = {
+            'our team', 'meet the team', 'about us', 'contact us', 'read more', 
+            'book appointment', 'home', 'services', 'dental clinic', 'emergency dentist',
+            'opening hours', 'cookie policy', 'privacy policy', 'terms conditions'
+        }
+        
         person_containers = soup.find_all(['div', 'article', 'section', 'li'], 
                                          class_=re.compile(r'member|team|person|staff|leadership|profile|employee', re.I))
         
@@ -300,7 +305,6 @@ class DeepCrawler:
             name_el = container.find(['h2', 'h3', 'h4', 'h5', 'strong', 'span'], 
                                      class_=re.compile(r'name|title|header', re.I))
             if not name_el:
-                # Try finding capitalized text that doesn't look like general UI
                 text = container.get_text(separator=' ').strip()
                 name_match = re.search(r'^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)', text)
                 name = name_match.group(1) if name_match else None
@@ -308,6 +312,9 @@ class DeepCrawler:
                 name = name_el.get_text().strip()
 
             if name and len(name.split()) >= 2 and len(name) < 40:
+                if name.lower() in invalid_names:
+                    continue
+
                 role_el = container.find(['p', 'span', 'div'], class_=re.compile(r'role|position|job|desc', re.I))
                 role = role_el.get_text().strip() if role_el else "N/A"
                 
@@ -322,13 +329,15 @@ class DeepCrawler:
                 phone_match = re.search(r'\+?[0-9][0-9\s.-]{8,15}', container.get_text())
                 phone = phone_match.group(0) if phone_match else "N/A"
 
-                members.append({
-                    "name": name,
-                    "role": role,
-                    "email": email,
-                    "phone": phone,
-                    "linkedin": linkedin
-                })
+                # Require at least one valid detail or meaningful role
+                if email != "N/A" or phone != "N/A" or linkedin != "N/A" or (role != "N/A" and len(role) < 50):
+                    members.append({
+                        "name": name,
+                        "role": role,
+                        "email": email,
+                        "phone": phone,
+                        "linkedin": linkedin
+                    })
         
         # Deduplicate members by name
         seen_names = set()
@@ -337,7 +346,7 @@ class DeepCrawler:
             if m["name"].lower() not in seen_names:
                 seen_names.add(m["name"].lower())
                 unique_members.append(m)
-        return unique_members
+        return unique_members[:8]
 
 def ensure_playwright_browsers():
     """Ensure Playwright Chromium browser binary is downloaded and installed."""
@@ -447,10 +456,11 @@ class MapsScraper:
                                     # Save Lead to Supabase & SQLite
                                     self.db.insert_lead(item)
 
-                                    # Save discovered Contacts
-                                    for c in contacts:
-                                        c["lead_place_id"] = item["place_id"]
-                                        self.db.insert_contact(c)
+                                    # Save discovered Contacts in a single bulk operation
+                                    if contacts:
+                                        for c in contacts:
+                                            c["lead_place_id"] = item["place_id"]
+                                        self.db.insert_contacts(contacts)
 
                                     scraped_count += 1
                                     logger.info(f"Successfully extracted [{scraped_count}/{total_results}]: {item.get('name')}")

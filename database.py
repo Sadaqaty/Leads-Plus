@@ -7,6 +7,10 @@ from supabase import create_client, Client
 
 logger = logging.getLogger(__name__)
 
+# Suppress verbose HTTP request logs from httpx and httpcore
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 class DatabaseManager:
     """
     Supabase Database Manager for LeadPulse Enterprise.
@@ -50,7 +54,7 @@ class DatabaseManager:
             try:
                 self.supabase = create_client(self.supabase_url, self.supabase_key)
                 self.is_supabase_connected = True
-                logger.info("Successfully connected to Supabase Cloud Database.")
+                logger.info("Connected to Supabase Cloud Database.")
             except Exception as e:
                 logger.warning(f"Supabase connection failed: {e}. Falling back to SQLite.")
                 self.is_supabase_connected = False
@@ -187,7 +191,7 @@ class DatabaseManager:
                             clean_lead[f] = val
 
                     self.supabase.table("leads").insert(clean_lead).execute()
-                    logger.info(f"Stored new lead in Supabase: {lead_data.get('name')}")
+                    logger.info(f"Stored lead in Supabase: {lead_data.get('name')}")
             except Exception as e:
                 logger.error(f"Supabase lead insert failed: {e}. Falling back to local SQL.")
 
@@ -234,33 +238,44 @@ class DatabaseManager:
             return False
 
     def insert_contact(self, contact_data):
+        return self.insert_contacts([contact_data])
+
+    def insert_contacts(self, contacts_list):
+        """Bulk insert contacts into Supabase (single HTTP request) and local SQLite."""
+        if not contacts_list:
+            return True
+            
         fields = ["lead_place_id", "name", "role", "email", "phone", "linkedin"]
-        lead_place_id = str(contact_data.get("lead_place_id", "N/A")).strip()
-        if not lead_place_id or lead_place_id in ["N/A", "", "None"]:
-            logger.warning(f"Skipping contact insert: invalid lead_place_id '{lead_place_id}'")
-            return False
-        
-        # Supabase push
+        valid_contacts = []
+        for c in contacts_list:
+            lead_place_id = str(c.get("lead_place_id", "N/A")).strip()
+            if lead_place_id and lead_place_id not in ["N/A", "", "None"]:
+                clean = {f: c.get(f, "N/A") for f in fields}
+                clean["lead_place_id"] = lead_place_id
+                valid_contacts.append(clean)
+                
+        if not valid_contacts:
+            return True
+
+        # Supabase Bulk Insert (Single HTTP Request)
         if self.is_supabase_connected:
             try:
-                clean_contact = {f: contact_data.get(f, "N/A") for f in fields}
-                clean_contact["lead_place_id"] = lead_place_id
-                self.supabase.table("contacts").insert(clean_contact).execute()
+                self.supabase.table("contacts").insert(valid_contacts).execute()
             except Exception as e:
-                logger.error(f"Supabase contact insert failed: {e}")
+                logger.error(f"Supabase contacts bulk insert failed: {e}")
 
-        # Local SQLite
+        # Local SQLite Bulk Insert
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 placeholders = ", ".join(["?"] * len(fields))
                 columns = ", ".join(fields)
-                values = tuple(contact_data.get(field, "N/A") for field in fields)
-                cursor.execute(f"INSERT INTO contacts ({columns}) VALUES ({placeholders})", values)
+                tuples_list = [tuple(c[f] for f in fields) for c in valid_contacts]
+                cursor.executemany(f"INSERT INTO contacts ({columns}) VALUES ({placeholders})", tuples_list)
                 conn.commit()
                 return True
         except Exception as e:
-            logger.error(f"Local contact insert failed: {e}")
+            logger.error(f"Local contacts bulk insert failed: {e}")
             return False
 
     def get_stats(self):
