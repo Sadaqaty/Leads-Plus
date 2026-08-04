@@ -46,6 +46,9 @@ jobs:
               # Build Desktop GUI Binary
               python -m PyInstaller --noconfirm --onedir --windowed --icon=icon.png --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "ms-playwright:ms-playwright" --add-data "assets:assets" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
               
+              # Build Purely Standalone Single-File Headless VPS Binary (No GUI/PySide6 dependency, single executable)
+              python -m PyInstaller --noconfirm --onefile --console --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "assets:assets" --add-data "config.env:." --exclude-module PySide6 --exclude-module shiboken6 --name LeadPulse-Server-standalone main.py
+
               # Build Headless Server Binary (Console mode for Ubuntu VPS, no Qt/PySide6 dependency)
               python -m PyInstaller --noconfirm --onedir --console --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "ms-playwright:ms-playwright" --add-data "assets:assets" --add-data "config.env:." --exclude-module PySide6 --exclude-module shiboken6 --name LeadPulse-Server main.py
               
@@ -130,6 +133,7 @@ jobs:
             dist/LeadPulse-Linux-amd64.deb
             dist/LeadPulse-Linux-x86_64.tar.gz
             dist/LeadPulse-Linux-Server-amd64.tar.gz
+            dist/LeadPulse-Server-standalone
             dist/LeadPulse-Installer.dmg
             dist/LeadPulse-macOS.zip
         env:
