@@ -389,10 +389,30 @@ def ensure_playwright_browsers():
     """Ensure Playwright Chromium browser binary is downloaded and installed."""
     import subprocess
     import sys
+    import os
     
     logger.info("Verifying/Installing Playwright Chromium browser binaries...")
+
+    # Clear PLAYWRIGHT_BROWSERS_PATH if it points to a non-existent or empty bundle dir
+    pb_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if pb_path and (not os.path.exists(pb_path) or not any("chromium" in d for d in os.listdir(pb_path) if os.path.isdir(pb_path))):
+        os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
     
-    # Method 1: Try sys.executable -m playwright install chromium
+    # Method 1: PyInstaller bundled driver + package/cli.js
+    try:
+        from playwright._impl._driver import compute_driver_executable, get_driver_env
+        driver_executable, _ = compute_driver_executable()
+        cli_js = os.path.join(os.path.dirname(driver_executable), "package", "cli.js")
+        env = get_driver_env()
+        if os.path.exists(driver_executable) and os.path.exists(cli_js):
+            res = subprocess.run([driver_executable, cli_js, "install", "chromium"], env=env, check=False, capture_output=True, text=True)
+            if res.returncode == 0:
+                logger.info("Playwright Chromium browser installed successfully via bundled driver.")
+                return True
+    except Exception as e:
+        logger.warning(f"Bundled driver install error: {e}")
+
+    # Method 2: sys.executable -m playwright install chromium
     try:
         res = subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False, capture_output=True, text=True)
         if res.returncode == 0:
@@ -401,29 +421,16 @@ def ensure_playwright_browsers():
     except Exception:
         pass
 
-    # Method 2: Fallback to playwright internal driver
-    try:
-        from playwright._impl._driver import compute_driver_executable, get_driver_env
-        driver_executable, _ = compute_driver_executable()
-        env = get_driver_env()
-        # Ensure node receives correct arguments without looking for file in CWD
-        res = subprocess.run([driver_executable, "cli", "install", "chromium"], env=env, check=False, capture_output=True, text=True)
-        if res.returncode == 0:
-            logger.info("Playwright Chromium browser is ready.")
-            return True
-    except Exception as e:
-        logger.warning(f"Internal driver install fallback error: {e}")
+    # Method 3: System npx / playwright CLI fallback
+    for cmd in [["npx", "playwright", "install", "chromium"], ["playwright", "install", "chromium"]]:
+        try:
+            res = subprocess.run(cmd, check=False, capture_output=True, text=True)
+            if res.returncode == 0:
+                logger.info("Playwright Chromium browser installed via system CLI.")
+                return True
+        except Exception:
+            pass
 
-    # Method 3: System playwright CLI call fallback
-    try:
-        res = subprocess.run(["playwright", "install", "chromium"], check=False, capture_output=True, text=True)
-        if res.returncode == 0:
-            logger.info("Playwright Chromium browser is ready.")
-            return True
-    except Exception:
-        pass
-
-    logger.warning("Could not auto-install Playwright Chromium via API. Using built-in browser path or auto-download fallback.")
     return False
 
 import gc
@@ -1044,8 +1051,12 @@ class MapsScraper:
                 browser = await p.chromium.launch(headless=headless, args=chromium_args)
             except Exception as launch_err:
                 logger.warning(f"Initial browser launch failed ({launch_err}). Auto-installing Playwright Chromium binaries...")
+                os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
                 ensure_playwright_browsers()
-                browser = await p.chromium.launch(headless=headless, args=chromium_args)
+                try:
+                    browser = await p.chromium.launch(headless=headless, args=chromium_args)
+                except Exception:
+                    browser = await p.chromium.launch(headless=headless, args=chromium_args, channel="chromium")
 
             self.browser = browser
 

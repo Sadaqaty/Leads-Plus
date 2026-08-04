@@ -12,10 +12,13 @@ def get_resource_path(relative_path):
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 
-# Configure bundled Playwright browsers path if present in PyInstaller bundle
+# Configure bundled Playwright browsers path if present in PyInstaller bundle and contains Chromium
 bundled_browsers = get_resource_path("ms-playwright")
 if os.path.exists(bundled_browsers):
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = bundled_browsers
+    # Check if chromium browser folder exists inside bundled path
+    has_chromium = any("chromium" in d for d in os.listdir(bundled_browsers)) if os.path.isdir(bundled_browsers) else False
+    if has_chromium:
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = bundled_browsers
 
 def run_cli_mode(args):
     """Execute scraping in 100% headless Command Line Interface (CLI) server mode."""
