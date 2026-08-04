@@ -424,16 +424,408 @@ WebGLRenderingContext.prototype.getParameter = function(parameter) {
 };
 """
 
+# Hardcoded High-Quality Fallback Proxies from ProxyScrape API
+HARDCODED_FALLBACK_PROXIES = [
+    "http://34.130.92.118:443",
+    "http://195.26.224.135:80",
+    "http://45.155.226.177:3128",
+    "http://59.66.22.107:7898",
+    "http://160.238.65.9:3128",
+    "http://219.249.37.107:8380",
+    "http://109.120.133.180:1443",
+    "http://47.81.56.193:8888",
+    "http://34.140.137.151:80",
+    "http://119.188.131.55:17981",
+    "http://77.239.112.19:35000",
+    "http://103.15.222.192:10327",
+    "http://159.65.245.255:80",
+    "http://47.76.226.125:8118",
+    "http://149.18.81.114:7890",
+    "http://212.47.232.28:80",
+    "http://89.207.72.188:8083",
+    "http://34.162.25.75:443",
+    "http://92.39.129.50:1256",
+    "http://43.252.106.147:8080",
+    "http://5.189.159.180:80",
+    "http://183.110.216.128:8090",
+    "http://66.163.119.55:10006",
+    "http://123.138.24.113:9480",
+    "http://149.86.151.202:8085",
+    "http://122.246.3.210:17981",
+    "http://114.236.137.41:21000",
+    "http://219.65.73.80:80",
+    "http://216.106.179.216:49503",
+    "http://58.254.153.147:17981",
+    "http://217.154.70.86:7777",
+    "http://190.153.122.3:999",
+    "http://129.226.127.245:18080",
+    "http://185.125.18.5:3128",
+    "http://20.210.76.175:8561",
+    "http://65.109.65.238:28080",
+    "http://38.76.9.0:999",
+    "http://14.225.240.23:8562",
+    "http://34.124.190.108:8080",
+    "http://166.1.18.72:28015",
+    "http://93.123.16.14:80",
+    "http://45.26.30.144:8888",
+    "http://147.78.0.81:9443",
+    "http://8.219.97.248:80",
+    "http://195.133.14.222:49152",
+    "http://216.106.179.216:49380",
+    "http://103.61.16.20:8780",
+    "http://152.230.215.123:80",
+    "http://103.111.225.210:9155",
+    "http://46.203.233.116:3128",
+    "http://175.143.76.177:8181",
+    "http://85.214.107.177:80",
+    "http://34.94.46.8:80",
+    "http://102.132.201.202:80",
+    "http://212.231.191.23:80",
+    "http://200.8.121.121:8080",
+    "http://45.146.163.31:80",
+    "http://103.176.174.100:8080",
+    "http://103.169.132.34:3128",
+    "http://38.49.133.226:999",
+    "http://113.249.102.192:18255",
+    "http://167.99.124.118:80",
+    "http://43.133.128.153:16012",
+    "http://45.133.251.223:3128",
+    "http://36.50.56.209:8818",
+    "http://38.172.170.80:999",
+    "http://143.198.85.218:3128",
+    "http://103.156.17.158:8818",
+    "http://219.93.101.63:80",
+    "http://103.172.42.105:1111",
+    "http://5.45.126.128:8080",
+    "http://91.142.75.202:1080",
+    "http://103.43.17.143:11111",
+    "http://47.89.184.18:3128",
+    "http://87.251.74.124:3128",
+    "http://123.138.24.114:8800",
+    "http://103.173.141.9:8080",
+    "http://159.196.182.72:8080",
+    "http://188.165.199.207:80",
+    "http://103.88.91.14:8080",
+    "http://104.129.192.156:11766",
+    "http://103.158.97.83:8080",
+    "http://212.68.59.254:8080",
+    "http://143.208.84.57:8589",
+    "http://195.87.182.10:9090",
+    "http://186.250.202.104:8080",
+    "http://36.91.148.36:8080",
+    "http://187.190.58.152:80",
+    "http://103.184.98.15:1991",
+    "http://112.198.132.34:8082",
+    "http://103.43.191.71:8888",
+    "http://103.172.42.193:1111",
+    "http://31.28.4.192:80",
+    "http://114.111.19.228:3389",
+    "http://144.31.75.120:11112",
+    "http://179.60.191.19:8080",
+    "http://101.66.194.115:8085",
+    "http://38.75.82.42:999",
+    "http://131.222.247.253:8080",
+    "http://190.97.239.22:999",
+    "http://103.1.224.34:18080",
+    "http://123.138.24.113:9443",
+    "http://102.68.135.147:8080",
+    "http://217.177.33.53:3128",
+    "http://102.38.7.110:1972",
+    "http://159.194.228.40:8888",
+    "http://113.160.132.26:8080",
+    "http://188.129.8.242:81",
+    "http://34.84.162.206:38080",
+    "http://205.209.64.21:8080",
+    "http://103.172.42.93:1111",
+    "http://160.238.65.4:3128",
+    "http://185.68.184.235:3128",
+    "http://38.210.179.115:999",
+    "http://61.186.243.6:9002",
+    "http://153.80.240.37:8080",
+    "http://222.252.14.70:8443",
+    "http://85.234.100.149:1080",
+    "http://203.177.139.11:8082",
+    "http://174.137.134.182:2999",
+    "http://103.151.17.201:8080",
+    "http://103.15.222.192:10006",
+    "http://104.154.186.48:80",
+    "http://185.205.210.154:8095",
+    "http://123.138.24.112:8800",
+    "http://138.121.15.230:999",
+    "http://190.142.231.46:999",
+    "http://85.234.100.149:8080",
+    "http://174.138.119.88:80",
+    "http://135.87.39.23:443",
+    "http://97.74.87.226:80",
+    "http://41.209.14.123:8080",
+    "http://103.3.59.208:8080",
+    "http://176.111.37.5:39811",
+    "http://190.14.240.133:999",
+    "http://157.173.123.247:3128",
+    "http://219.249.37.107:8382",
+    "http://117.50.194.130:7890",
+    "http://103.171.161.96:9090",
+    "http://31.57.178.255:8181",
+    "http://181.119.84.218:8080",
+    "http://108.170.12.12:80",
+    "http://113.249.102.27:18255",
+    "http://175.29.125.242:8080",
+    "http://103.210.35.182:8080",
+    "http://160.238.65.5:3128",
+    "http://191.102.107.235:999",
+    "http://20.83.140.251:8080",
+    "http://45.167.126.42:999",
+    "http://103.69.96.15:9999",
+    "http://181.204.81.179:999",
+    "http://202.165.232.238:8080",
+    "http://46.209.15.187:8080",
+    "http://186.96.160.220:999",
+    "http://64.227.123.197:3128",
+    "http://182.160.124.83:50000",
+    "http://103.46.8.85:8080",
+    "http://220.154.128.91:21033",
+    "http://103.178.42.23:8181",
+    "http://167.249.29.218:999",
+    "http://173.254.204.118:7890",
+    "http://154.19.39.151:8090",
+    "http://154.113.18.189:9779",
+    "http://109.107.181.73:12198",
+    "http://43.252.236.158:8080",
+    "http://95.111.194.14:6045",
+    "http://144.31.207.192:8888",
+    "http://165.16.46.215:8080",
+    "http://185.135.99.14:8080",
+    "http://103.228.171.47:8118",
+    "http://43.132.189.30:3128",
+    "http://97.76.251.138:8080",
+    "http://14.238.8.63:9090",
+    "http://170.81.102.163:6666",
+    "http://112.198.138.14:8082",
+    "http://45.174.108.141:999",
+    "http://103.186.193.135:8080",
+    "http://103.189.249.196:1111",
+    "http://177.184.195.168:8080",
+    "http://103.178.23.6:8080",
+    "http://45.70.236.194:999",
+    "http://153.72.68.0:8080",
+    "http://38.211.24.242:8080",
+    "http://94.102.193.91:8080",
+    "http://160.25.56.58:3125",
+    "http://34.134.231.117:3129",
+    "http://23.228.86.236:8081",
+    "http://95.3.69.222:8080",
+    "http://47.251.87.74:9098",
+    "http://185.82.238.42:8888",
+    "http://144.124.227.88:3128",
+    "http://61.49.87.3:80",
+    "http://195.133.2.113:3128",
+    "http://103.13.192.76:8080",
+    "http://175.136.239.174:8181",
+    "http://192.236.242.201:2055",
+    "http://103.149.42.14:3125",
+    "http://8.213.128.6:9090",
+    "http://178.212.144.7:80",
+    "http://119.93.153.250:8082",
+    "http://103.71.162.17:8080",
+    "http://186.33.5.13:8080",
+    "http://194.135.81.158:3128",
+    "http://102.213.179.210:8080",
+    "http://54.39.28.106:8082",
+    "http://5.188.190.218:80",
+    "http://91.98.86.26:8888",
+    "http://43.255.159.94:3129",
+    "http://181.209.122.115:999",
+    "http://23.27.143.117:3080",
+    "http://103.163.231.106:3127",
+    "http://202.162.195.157:8080",
+    "http://104.129.192.156:10121",
+    "http://41.33.203.238:1975",
+    "http://8.215.112.214:7777",
+    "http://103.237.102.191:11111",
+    "http://103.167.171.149:7778",
+    "http://103.162.54.182:8090",
+    "http://24.152.58.22:999",
+    "http://176.88.166.163:8080",
+    "http://46.39.252.111:8080",
+    "http://181.119.111.59:999",
+    "http://135.87.39.23:9443",
+    "http://219.93.101.62:80",
+    "http://181.191.14.5:8080",
+    "http://104.129.192.156:10525",
+    "http://43.229.254.221:8181",
+    "http://182.160.114.106:12331",
+    "http://103.162.16.45:8080",
+    "http://202.182.96.178:10087",
+    "http://27.185.218.213:17981",
+    "http://108.170.12.10:80",
+    "http://104.129.192.156:10174",
+    "http://62.171.168.211:3128",
+    "http://181.233.100.101:8080",
+    "http://103.188.33.74:8085",
+    "http://103.157.79.154:1818",
+    "http://15.204.35.6:30017",
+    "http://103.155.246.42:8080",
+    "http://101.255.208.18:8090",
+    "http://177.234.211.79:999",
+    "http://125.209.110.83:39617",
+    "http://38.51.221.17:999",
+    "http://122.246.4.6:17981",
+    "http://31.131.248.48:3129",
+    "http://103.166.158.41:1080",
+    "http://143.198.135.176:80",
+    "http://103.156.75.41:8080",
+    "socks4://116.203.19.71:9099",
+    "socks5://94.19.248.31:1080",
+    "socks5://195.201.111.97:12001",
+    "socks5://3.129.27.9:17000",
+    "socks4://189.202.204.53:1080",
+    "socks5://144.24.47.42:1080",
+    "socks5://130.49.187.61:1082",
+    "socks4://89.237.33.126:51549",
+    "socks4://37.193.125.68:1090",
+    "socks5://212.77.75.25:1088",
+    "socks5://117.50.194.130:7890",
+    "socks4://68.71.247.130:4145",
+    "socks5://184.182.240.12:4145",
+    "socks5://216.22.13.244:1083",
+    "socks4://139.28.240.202:1082",
+    "socks4://176.88.166.190:5678",
+    "socks5://213.199.47.140:1080",
+    "socks4://47.239.140.6:80",
+    "socks5://103.195.191.39:10800",
+    "socks4://178.130.47.50:1082",
+    "socks4://178.253.23.193:1080",
+    "socks4://147.45.60.139:1082",
+    "socks5://194.163.174.78:1082",
+    "socks5://192.252.215.2:4145",
+    "socks4://157.90.113.23:9052",
+    "socks5://101.2.166.73:1080",
+    "socks5://83.147.216.208:1080",
+    "socks5://178.128.59.180:40001",
+    "socks5://5.255.117.250:1080",
+    "socks5://72.207.113.97:4145",
+    "socks4://103.1.224.34:18080",
+    "socks5://47.245.165.201:1080",
+    "socks4://61.191.119.134:10800",
+    "socks5://123.58.219.171:10808",
+    "socks5://23.27.141.243:3080",
+    "socks5://67.201.58.190:4145",
+    "socks5://193.233.218.213:1080",
+    "socks5://141.98.85.49:1080",
+    "socks5://47.250.115.134:1080",
+    "socks4://190.18.170.230:5678",
+    "socks4://103.153.247.74:12",
+    "socks5://203.25.208.163:1515",
+    "socks4://125.26.4.197:4145",
+    "socks4://103.81.114.182:4145",
+    "socks4://192.111.139.163:19404",
+    "socks5://103.118.85.146:1080",
+    "socks4://78.31.93.76:1080",
+    "socks5://184.181.217.206:4145",
+    "socks5://117.175.168.195:1080",
+    "socks4://78.111.112.118:4145",
+    "socks4://184.182.240.211:4145",
+    "socks4://69.55.49.177:38182",
+    "socks5://199.66.182.243:4145",
+    "socks5://174.77.111.197:4145",
+    "socks4://185.190.90.2:4145",
+    "socks4://149.62.186.244:1080",
+    "socks5://147.45.60.124:1082",
+    "socks5://103.191.218.119:69",
+    "socks4://101.255.150.238:1080",
+    "socks5://176.192.41.172:4444",
+    "socks5://88.99.82.67:443",
+    "socks5://119.28.13.138:1080",
+    "socks5://202.79.26.242:1080",
+    "socks5://208.102.51.6:58208",
+    "socks4://116.203.19.71:9092",
+    "socks5://123.0.24.154:9090",
+    "socks5://144.91.121.61:1088",
+    "socks4://1.179.172.45:31225",
+    "socks4://105.30.248.241:1080",
+    "socks4://195.201.111.97:12001",
+    "socks4://144.31.11.24:4500",
+    "socks4://81.18.90.43:4153",
+    "socks5://45.133.16.88:1080",
+    "socks4://203.160.59.253:4145",
+    "socks4://103.146.42.181:8086",
+    "socks4://91.142.75.202:1080",
+    "socks4://159.195.61.240:1080",
+    "socks4://117.50.194.130:7890",
+    "socks4://200.8.235.10:4145",
+    "socks5://193.25.215.182:22222",
+    "socks4://216.68.128.121:4145",
+    "socks5://190.89.4.185:1080",
+    "socks4://199.66.183.226:4145",
+    "socks4://184.182.240.12:4145",
+    "socks5://152.32.219.123:10808",
+    "socks5://45.137.43.0:1081",
+    "socks5://193.108.115.81:10808",
+    "socks5://216.68.128.121:4145",
+    "socks5://192.252.214.17:4145",
+    "socks4://147.15.122.136:1084",
+    "socks5://141.148.158.143:1080",
+    "socks5://66.163.119.55:10006",
+    "socks4://95.140.118.34:1080",
+    "socks4://147.15.122.136:1094",
+    "socks5://68.71.252.38:4145",
+    "socks4://98.188.47.132:4145",
+    "socks4://147.45.60.136:1082",
+    "socks5://43.160.255.142:7890",
+    "socks4://24.37.245.42:51056",
+    "socks4://185.5.202.203:1080",
+    "socks4://176.241.82.149:5678",
+    "socks5://47.238.210.231:1011",
+    "socks4://8.215.25.3:2080",
+    "socks4://189.39.118.210:5678",
+    "socks4://66.163.119.55:10006",
+    "socks5://47.85.37.60:1080",
+    "socks4://190.89.104.48:5432",
+    "socks4://103.10.99.110:5678",
+    "socks4://70.166.167.55:57745",
+    "socks4://77.239.112.19:35000",
+    "socks4://72.195.34.41:4145",
+    "socks5://184.182.240.211:4145",
+    "socks4://190.54.100.74:5678",
+    "socks5://95.105.28.76:1080",
+    "socks4://43.160.255.142:7890",
+    "socks4://66.42.224.229:41679",
+    "socks4://105.214.87.237:5678",
+    "socks5://98.170.57.249:4145",
+    "socks5://152.32.203.130:10808",
+    "socks5://144.31.222.106:7890",
+    "socks5://38.49.210.79:40000",
+    "socks5://115.127.53.114:1080",
+    "socks5://93.90.232.32:1080",
+    "socks4://209.182.234.151:40000",
+    "socks5://213.176.113.24:50001",
+    "socks5://138.124.26.19:1080",
+    "socks4://77.238.246.43:17277",
+    "socks5://78.63.115.20:8899",
+    "socks5://104.234.124.3:1080",
+    "socks4://147.45.60.124:1082",
+    "socks4://216.106.179.216:49503",
+    "socks5://195.133.65.238:10909",
+    "socks5://109.199.107.68:1080",
+    "socks4://107.173.153.119:2080",
+    "socks4://177.128.81.10:81",
+    "socks4://163.47.156.230:1080",
+    "socks5://147.15.17.132:1084",
+    "socks4://138.124.26.19:1080",
+    "socks5://77.110.102.252:1080"
+]
+
 class ProxyManager:
     """
     High-Performance Proxy Manager supporting HTTP, HTTPS, SOCKS4, and SOCKS5 proxies
-    with format parsing, rotation, and automatic health monitoring.
+    with auto-fetching from ProxyScrape API, hardcoded fallbacks, rotation, and automatic health monitoring.
     """
-    def __init__(self, proxy_list=None, proxy_file=None):
+    def __init__(self, proxy_list=None, proxy_file=None, fetch_live=True):
         self.proxies = []
         self.current_idx = 0
         self.unhealthy_proxies = set()
 
+        # Load explicitly provided list
         if proxy_list:
             if isinstance(proxy_list, str):
                 proxy_list = [proxy_list]
@@ -442,6 +834,7 @@ class ProxyManager:
                 if parsed:
                     self.proxies.append(parsed)
 
+        # Load from file if provided
         if proxy_file and os.path.exists(proxy_file):
             try:
                 with open(proxy_file, "r", encoding="utf-8") as f:
@@ -476,8 +869,44 @@ class ProxyManager:
                 except Exception:
                     pass
 
+        # Live fetch from ProxyScrape API if enabled and no custom proxy supplied
+        if not self.proxies and fetch_live:
+            fetched = self._fetch_proxyscrape_api()
+            if fetched:
+                self.proxies.extend(fetched)
+
+        # Final Fallback to Built-in High Quality Proxy List
+        if not self.proxies:
+            logger.info("Initializing ProxyManager with built-in high quality proxy pool...")
+            for raw_p in HARDCODED_FALLBACK_PROXIES:
+                parsed = self.parse_proxy(raw_p)
+                if parsed:
+                    self.proxies.append(parsed)
+
         if self.proxies:
-            logger.info(f"Loaded {len(self.proxies)} proxies into ProxyManager.")
+            logger.info(f"Loaded {len(self.proxies)} functional proxies into ProxyManager pool.")
+
+    def _fetch_proxyscrape_api(self):
+        """Fetch fresh live proxies directly from ProxyScrape API v4 endpoint."""
+        url = "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text"
+        try:
+            import urllib.request
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                content = response.read().decode('utf-8')
+                fetched_list = []
+                for line in content.splitlines():
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        parsed = self.parse_proxy(line)
+                        if parsed:
+                            fetched_list.append(parsed)
+                if fetched_list:
+                    logger.info(f"Successfully fetched {len(fetched_list)} fresh proxies from ProxyScrape API.")
+                    return fetched_list
+        except Exception as e:
+            logger.warning(f"Could not fetch live proxies from ProxyScrape API ({e}). Falling back to hardcoded pool...")
+        return []
 
     @staticmethod
     def parse_proxy(proxy_str):
@@ -542,15 +971,24 @@ class MapsScraper:
         await asyncio.sleep(random.uniform(min_sec, max_sec))
 
     async def _navigate_with_retry(self, page, url, max_retries=3, timeout=30000, current_proxy=None):
-        """Navigate to URL with exponential backoff and proxy health tracking."""
+        """Navigate to URL with exponential backoff, CAPTCHA/Bot block detection, and proxy health tracking."""
         for attempt in range(1, max_retries + 1):
             try:
                 response = await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
+                
+                # Check for Google anti-bot / CAPTCHA block page
+                content = await page.content()
+                if "Google Search - Unusual Traffic" in content or "recaptcha" in content.lower() or "sorry/index" in page.url:
+                    logger.warning(f"⚠️ Google Bot/CAPTCHA block detected on proxy: {current_proxy['server'] if current_proxy else 'Direct IP'}")
+                    if current_proxy:
+                        self.proxy_manager.mark_unhealthy(current_proxy)
+                    raise Exception("Google Bot/CAPTCHA Detection Blocked Access")
+
                 return response
             except Exception as e:
                 err_str = str(e)
                 logger.warning(f"Navigation attempt {attempt}/{max_retries} failed for {url} ({err_str})")
-                if current_proxy and ("net::ERR" in err_str or "PROXY" in err_str.upper() or "Timeout" in err_str):
+                if current_proxy and ("net::ERR" in err_str or "PROXY" in err_str.upper() or "Timeout" in err_str or "CAPTCHA" in err_str):
                     self.proxy_manager.mark_unhealthy(current_proxy)
                 if attempt == max_retries:
                     raise e
