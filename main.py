@@ -82,11 +82,19 @@ def run_cli_mode(args):
         nonlocal total_extracted
         total_extracted += 1
         name = item.get("name", "N/A")
+        cat = item.get("main_category", "N/A")
         phone = item.get("phone", "N/A")
         email = item.get("email", "N/A")
+        website = item.get("website", "N/A")
         rating = item.get("rating", "0.0")
         reviews = item.get("reviews", "0")
-        print(f"[{meta['current_count']}/{meta['max_results']}] Extracted: {name} | 📞 {phone} | ✉️ {email} | ⭐ {rating} ({reviews} rev)")
+        
+        social_count = sum(1 for platform in ['facebook', 'instagram', 'linkedin', 'twitter', 'youtube'] if item.get(platform, "N/A") != "N/A")
+        social_str = f" | 📲 {social_count} socials" if social_count > 0 else ""
+        web_str = f" | 🌐 {website[:35]}" if website != "N/A" else ""
+        cat_str = f" [{cat}]" if cat != "N/A" else ""
+        
+        print(f"[{meta['current_count']}/{meta['max_results']}] Extracted: {name}{cat_str}{web_str} | 📞 {phone} | ✉️ {email}{social_str} | ⭐ {rating} ({reviews} rev)")
 
     async def main_async():
         await scraper.scrape_maps(

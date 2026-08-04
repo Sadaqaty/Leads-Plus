@@ -1196,7 +1196,7 @@ class MapsScraper:
                             item = await self._parse_place_details(detail_page, query)
                             await detail_page.close()
 
-                            if item and item.get("place_id") != "N/A":
+                            if item and item.get("place_id") != "N/A" and item.get("name") != "N/A":
                                 # Deep web crawl if website is present
                                 website = item.get("website", "N/A")
                                 contacts = []
