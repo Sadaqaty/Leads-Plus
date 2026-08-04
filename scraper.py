@@ -1453,16 +1453,63 @@ class MapsScraper:
                 val_ph = format_and_validate_phone(raw_ph, site_url=item.get("website"), address=item.get("address"), query=query)
                 item["phone"] = val_ph if val_ph else raw_ph
 
-            # Coordinates (latitude & longitude)
-            coord_match = re.search(r'!3d(-?[0-9\.]+)!4d(-?[0-9\.]+)', url)
+            # --- COORDINATES (LATITUDE & LONGITUDE) EXTRACTION ---
+            # 1. URL pattern: !3d<lat>!4d<lng>
+            coord_match = re.search(r'!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)', url)
             if coord_match:
                 item["latitude"] = coord_match.group(1)
                 item["longitude"] = coord_match.group(2)
             else:
-                ll_match = re.search(r'@(-?[0-9\.]+),(-?[0-9\.]+)', url)
+                # 2. URL pattern: @<lat>,<lng>
+                ll_match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', url)
                 if ll_match:
                     item["latitude"] = ll_match.group(1)
                     item["longitude"] = ll_match.group(2)
+                else:
+                    # 3. URL pattern: ll=<lat>,<lng> or center=<lat>,<lng>
+                    ll_param = re.search(r'[?&](?:ll|center|coordinates)=(-?\d+\.\d+)[,%2C](-?\d+\.\d+)', url, re.I)
+                    if ll_param:
+                        item["latitude"] = ll_param.group(1)
+                        item["longitude"] = ll_param.group(2)
+
+            # 4. DOM Directions link fallback (a[href*="/dir/"])
+            if item["latitude"] == "N/A" or item["longitude"] == "N/A":
+                try:
+                    dir_btn = await page.query_selector('a[href*="/dir/"], a[aria-label*="Directions"], a[data-tooltip*="Directions"]')
+                    if dir_btn:
+                        dir_href = await dir_btn.get_attribute("href")
+                        if dir_href:
+                            dir_match = re.search(r'/dir/[^/]+/.*?@(-?\d+\.\d+),(-?\d+\.\d+)', dir_href) or re.search(r'destination=(-?\d+\.\d+)[,%2C](-?\d+\.\d+)', dir_href) or re.search(r'!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)', dir_href)
+                            if dir_match:
+                                item["latitude"] = dir_match.group(1)
+                                item["longitude"] = dir_match.group(2)
+                except Exception:
+                    pass
+
+            # 5. HTML Meta tag / Static Map fallback scan
+            if item["latitude"] == "N/A" or item["longitude"] == "N/A":
+                try:
+                    meta_lat = await page.query_selector('meta[itemprop="latitude"]')
+                    meta_lng = await page.query_selector('meta[itemprop="longitude"]')
+                    if meta_lat and meta_lng:
+                        c_lat = await meta_lat.get_attribute("content")
+                        c_lng = await meta_lng.get_attribute("content")
+                        if c_lat and c_lng:
+                            item["latitude"] = c_lat.strip()
+                            item["longitude"] = c_lng.strip()
+                except Exception:
+                    pass
+
+            # 6. Page Content HTML Regex Fallback for embedded Google Maps JS arrays
+            if item["latitude"] == "N/A" or item["longitude"] == "N/A":
+                try:
+                    html_content = await page.content()
+                    m_html = re.search(r'!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)', html_content) or re.search(r'center=(-?\d+\.\d+)%2C(-?\d+\.\d+)', html_content, re.I)
+                    if m_html:
+                        item["latitude"] = m_html.group(1)
+                        item["longitude"] = m_html.group(2)
+                except Exception:
+                    pass
 
         except Exception as e:
             logger.warning(f"Error parsing place fields: {e}")
