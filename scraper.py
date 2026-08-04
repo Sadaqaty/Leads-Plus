@@ -1286,11 +1286,16 @@ class MapsScraper:
         }
 
         try:
-            # Wait briefly for detail header panel to render
+            # Wait for detail panel header AND info section to render
             try:
-                await page.wait_for_selector('h1', timeout=4000)
+                await page.wait_for_selector('h1.DUwif, h1.fontHeadlineLarge, h1', timeout=5000)
             except Exception:
                 pass
+
+            try:
+                await page.wait_for_selector('button[data-item-id="address"], button[data-item-id^="phone"], a[data-item-id="authority"], div.Io6YTe', timeout=5000)
+            except Exception:
+                await page.wait_for_timeout(2000)
 
             # Place ID from URL
             url = page.url
@@ -1452,6 +1457,17 @@ class MapsScraper:
                             item["website"] = l_href
                             break
 
+            if item["website"] == "N/A":
+                # HTML Content Fallback for Website
+                m_web = re.search(r'data-item-id=[\"\']authority[\"\'][^>]*?href=[\"\']([^\"\'\s>]+)[\"\']', content, re.I) or re.search(r'href=[\"\'](https?://(?!www\.google|gstatic|ggpht|schema\.org)[^\"\'\s>]+)[\"\'][^>]*?data-tooltip=[\"\'](?:Open\s*)?website', content, re.I)
+                if m_web:
+                    href = m_web.group(1)
+                    if "google.com/url?" in href:
+                        m_u = re.search(r'q=([^&]+)', href)
+                        if m_u:
+                            href = unquote(m_u.group(1))
+                    item["website"] = href
+
             # --- ADDRESS EXTRACTION ---
             addr_btn = await page.query_selector('button[data-item-id="address"], button[aria-label*="Address"], button[aria-label*="Adres"], button[aria-label*="Adresse"], button[data-tooltip*="address"], button[data-tooltip*="adres"]')
             if addr_btn:
@@ -1463,15 +1479,6 @@ class MapsScraper:
                     if addr_txt and len(addr_txt) > 5:
                         item["address"] = addr_txt
 
-            if item["address"] == "N/A":
-                # Fallback address scan across Io6YTe / CsA25 elements
-                nodes = await page.query_selector_all('div.Io6YTe, button.CsA25, button[data-item-id="address"]')
-                for n in nodes:
-                    txt = (await n.inner_text()).strip()
-                    if "," in txt and len(txt) > 8 and not re.search(r'^\+?[0-9\s\-\(\)]+$', txt) and not txt.startswith("http"):
-                        item["address"] = txt
-                        break
-
             # --- PHONE EXTRACTION ---
             phone_btn = await page.query_selector('button[data-item-id^="phone"], button[aria-label*="Phone"], button[aria-label*="Telefoon"], button[aria-label*="Telefon"], button[data-tooltip*="phone"], button[data-tooltip*="telefoon"]')
             raw_ph = None
@@ -1482,14 +1489,29 @@ class MapsScraper:
                 else:
                     raw_ph = (await phone_btn.inner_text()).strip()
 
-            # Fallback Phone Scan across info nodes if missing
-            if not raw_ph or raw_ph == "N/A":
-                info_nodes = await page.query_selector_all('div.Io6YTe, button.CsA25, button.Io6YTe, div.fontBodyMedium')
-                for node in info_nodes:
-                    node_text = (await node.inner_text()).strip()
-                    if re.search(r'^\+?[0-9\s\-\(\)\.]{7,25}$', node_text) and not any(c in node_text for c in ['@', 'http', ':', '$', ',']):
+            # --- UNIVERSAL INFO SECTION SCAN (div.Io6YTe / button.CsA25) for Address & Phone ---
+            info_nodes = await page.query_selector_all('div.Io6YTe, button.CsA25, button.Io6YTe, div.fontBodyMedium')
+            for node in info_nodes:
+                node_text = (await node.inner_text()).strip()
+                if not node_text or len(node_text) < 4:
+                    continue
+
+                # Phone Check
+                if (not raw_ph or raw_ph == "N/A") and re.search(r'^\+?[0-9\s\-\(\)\.]{7,25}$', node_text):
+                    if not any(c in node_text for c in ['@', 'http', ':', '$', ',']):
                         raw_ph = node_text
-                        break
+
+                # Address Check
+                if item["address"] == "N/A":
+                    if ("," in node_text or any(k in node_text for k in ["Street", " St", " Ave", " Rd", " Blvd", " Suite", " Suite", " Way", " Drive", " Dr"])) and len(node_text) > 8:
+                        if not re.search(r'^\+?[0-9\s\-\(\)]+$', node_text) and not node_text.startswith("http") and not any(k in node_text.lower() for k in ["open", "closed", "hours", "reviews", "star", "claim"]):
+                            item["address"] = node_text
+
+            # HTML Regex Fallback for Phone
+            if not raw_ph or raw_ph == "N/A":
+                m_ph = re.search(r'data-item-id=[\"\']phone:tel:([^\"\'\s>]+)[\"\']', content, re.I) or re.search(r'href=[\"\']tel:([^\"\'\s>]+)[\"\']', content, re.I)
+                if m_ph:
+                    raw_ph = unquote(m_ph.group(1))
 
             if raw_ph and raw_ph != "N/A":
                 val_ph = format_and_validate_phone(raw_ph, site_url=item.get("website"), address=item.get("address"), query=query)
