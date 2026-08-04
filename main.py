@@ -100,8 +100,10 @@ def run_cli_mode(args):
 
     try:
         asyncio.run(main_async())
-    except KeyboardInterrupt:
-        print("\n⚠️ Extraction cancelled by user.")
+    except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
+        print("\n⚠️ Extraction stopped by user.")
+    except Exception as e:
+        print(f"\n⚠️ Extraction process finished: {e}")
 
     print("\n" + "=" * 75)
     print(f" ✅ Extraction Completed! Total leads processed: {total_extracted}")

@@ -1388,27 +1388,70 @@ class MapsScraper:
             except Exception:
                 pass
 
-            # Website
-            web_btn = await page.query_selector('a[data-item-id="authority"]')
+            # --- WEBSITE EXTRACTION ---
+            web_btn = await page.query_selector('a[data-item-id="authority"], a[aria-label*="Website"], a[aria-label*="website"], a[data-tooltip*="Open website"], a[data-tooltip*="Website"]')
             if web_btn:
                 href = await web_btn.get_attribute("href")
-                if href: item["website"] = href
+                if href:
+                    if "google.com/url?" in href or "google.com/url" in href:
+                        m_url = re.search(r'q=([^&]+)', href)
+                        if m_url:
+                            href = unquote(m_url.group(1))
+                    item["website"] = href
 
-            # Address
-            addr_btn = await page.query_selector('button[data-item-id="address"]')
+            if item["website"] == "N/A":
+                all_links = await page.query_selector_all('a[href^="http"]')
+                for l in all_links:
+                    l_href = (await l.get_attribute("href")) or ""
+                    l_aria = (await l.get_attribute("aria-label")) or ""
+                    l_ttip = (await l.get_attribute("data-tooltip")) or ""
+                    if "google.com" not in l_href and "gstatic.com" not in l_href and "ggpht.com" not in l_href:
+                        if "website" in l_aria.lower() or "website" in l_ttip.lower() or (await l.get_attribute("data-item-id") or "") == "authority":
+                            item["website"] = l_href
+                            break
+
+            # --- ADDRESS EXTRACTION ---
+            addr_btn = await page.query_selector('button[data-item-id="address"], button[aria-label*="Address:"], button[aria-label*="Address"], button[data-tooltip*="address"], button[data-tooltip*="Address"]')
             if addr_btn:
                 addr_aria = await addr_btn.get_attribute("aria-label")
                 if addr_aria:
-                    item["address"] = addr_aria.replace("Address:", "").strip()
+                    item["address"] = re.sub(r'^(Address:|Address\s*)', '', addr_aria, flags=re.I).strip()
+                else:
+                    addr_txt = (await addr_btn.inner_text()).strip()
+                    if addr_txt and len(addr_txt) > 5:
+                        item["address"] = addr_txt
 
-            # Phone
-            phone_btn = await page.query_selector('button[data-item-id^="phone:"]')
+            if item["address"] == "N/A":
+                # Fallback address scan across Io6YTe / CsA25 elements
+                nodes = await page.query_selector_all('div.Io6YTe, button.CsA25, button[data-item-id="address"]')
+                for n in nodes:
+                    txt = (await n.inner_text()).strip()
+                    if "," in txt and len(txt) > 8 and not re.search(r'^\+?[0-9\s\-\(\)]+$', txt) and not txt.startswith("http"):
+                        item["address"] = txt
+                        break
+
+            # --- PHONE EXTRACTION ---
+            phone_btn = await page.query_selector('button[data-item-id^="phone:"], button[aria-label*="Phone:"], button[aria-label*="Phone"], button[data-tooltip*="phone"], button[data-tooltip*="Phone"]')
+            raw_ph = None
             if phone_btn:
                 phone_aria = await phone_btn.get_attribute("aria-label")
                 if phone_aria:
-                    raw_ph = phone_aria.replace("Phone:", "").strip()
-                    val_ph = format_and_validate_phone(raw_ph, site_url=item.get("website"), address=item.get("address"), query=query)
-                    item["phone"] = val_ph if val_ph else raw_ph
+                    raw_ph = re.sub(r'^(Phone:|Phone\s*)', '', phone_aria, flags=re.I).strip()
+                else:
+                    raw_ph = (await phone_btn.inner_text()).strip()
+
+            # Fallback Phone Scan across info nodes if missing
+            if not raw_ph or raw_ph == "N/A":
+                info_nodes = await page.query_selector_all('div.Io6YTe, button.CsA25, button.Io6YTe, div.fontBodyMedium')
+                for node in info_nodes:
+                    node_text = (await node.inner_text()).strip()
+                    if re.search(r'^\+?[0-9\s\-\(\)\.]{7,25}$', node_text) and not any(c in node_text for c in ['@', 'http', ':', '$', ',']):
+                        raw_ph = node_text
+                        break
+
+            if raw_ph and raw_ph != "N/A":
+                val_ph = format_and_validate_phone(raw_ph, site_url=item.get("website"), address=item.get("address"), query=query)
+                item["phone"] = val_ph if val_ph else raw_ph
 
             # Coordinates (latitude & longitude)
             coord_match = re.search(r'!3d(-?[0-9\.]+)!4d(-?[0-9\.]+)', url)
