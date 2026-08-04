@@ -312,3 +312,27 @@ class DatabaseManager:
                 }
         except Exception:
             return {"total_leads": 0, "with_email": 0, "with_phone": 0, "total_contacts": 0}
+
+    def export_to_csv(self, filepath):
+        """Export all leads stored in local SQLite database to CSV."""
+        import csv
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM leads ORDER BY id DESC")
+                rows = cursor.fetchall()
+                if rows:
+                    os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+                    with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
+                        writer = csv.writer(f)
+                        headers = list(rows[0].keys())
+                        writer.writerow(headers)
+                        for r in rows:
+                            writer.writerow(list(r))
+                    logger.info(f"Exported {len(rows)} leads to CSV: {filepath}")
+                    return True
+        except Exception as e:
+            logger.error(f"Failed to export CSV: {e}")
+        return False
+
