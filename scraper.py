@@ -1070,7 +1070,7 @@ class MapsScraper:
                     break
                     
                 logger.info(f"Processing query [{q_idx}/{len(queries)}]: {query}")
-                search_url = f"https://www.google.com/maps/search/{quote(query)}"
+                search_url = f"https://www.google.com/maps/search/{quote(query)}?hl=en"
 
                 page = None
                 context = None
@@ -1088,7 +1088,10 @@ class MapsScraper:
                     context_kwargs = {
                         "user_agent": ua,
                         "viewport": {"width": 1920, "height": 1080},
-                        "locale": "en-US"
+                        "locale": "en-US",
+                        "extra_http_headers": {
+                            "Accept-Language": "en-US,en;q=0.9"
+                        }
                     }
                     if current_proxy:
                         proxy_cfg = {"server": current_proxy["server"]}
@@ -1178,6 +1181,12 @@ class MapsScraper:
 
                             seen_place_urls.add(place_url)
                             new_items_found = True
+
+                            # Force English parameter on place URL
+                            if "hl=" in place_url:
+                                place_url = re.sub(r'hl=[a-zA-Z\-]+', 'hl=en', place_url)
+                            else:
+                                place_url += "&hl=en" if "?" in place_url else "?hl=en"
 
                             # Open place detail view inside stealth context
                             detail_page = await context.new_page()
@@ -1290,17 +1299,25 @@ class MapsScraper:
             elif "place/" in url:
                 item["place_id"] = url.split("place/")[1].split("/")[0]
 
-            # Name
-            h1 = await page.query_selector("h1")
-            if h1:
-                item["name"] = (await h1.inner_text()).strip()
+            # Name Extraction with system banner filtering
+            h1_elements = await page.query_selector_all("h1.DUwif, h1.fontHeadlineLarge, h1")
+            for h1_el in h1_elements:
+                h1_text = (await h1_el.inner_text()).strip()
+                if h1_text and not any(err_word in h1_text.lower() for err_word in [
+                    "google maps", "geen toegang", "no connection", "unusual traffic", 
+                    "recaptcha", "something went wrong", "before you continue"
+                ]):
+                    item["name"] = h1_text
+                    break
 
-            # Category
-            cat_btn = await page.query_selector('button[data-item-id="address"] + button, button.DkCrMe')
-            if cat_btn:
-                item["main_category"] = (await cat_btn.inner_text()).strip()
+            # Category Extraction
+            cat_el = await page.query_selector('button[jsaction*="category"], button.Dkftq, span.Dkftq, button.DkCrMe, button[data-item-id="category"], div.LBbeF button, button[data-item-id="address"] + button')
+            if cat_el:
+                cat_txt = (await cat_el.inner_text()).strip()
+                if cat_txt and len(cat_txt) < 60 and not cat_txt.startswith("·"):
+                    item["main_category"] = cat_txt
 
-            # 1. Rating & Reviews Count - DOM selectors
+            # 1. Rating & Reviews Count - DOM selectors with Multilingual Support
             rev_elements = await page.query_selector_all(
                 'span.ZkP5Je, div.F7v25d, span.ceNzKf, button[aria-label*="review"], '
                 'button[aria-label*="star"], span[aria-label*="review"], span[aria-label*="star"], '
@@ -1312,35 +1329,39 @@ class MapsScraper:
                 combined = f"{aria} {txt}"
                 
                 if item["rating"] == "0.0":
-                    m_rat = re.search(r'([0-4]\.[0-9]|5\.0)', combined)
+                    m_rat = re.search(r'([0-5][\.,][0-9])', combined)
                     if m_rat:
-                        item["rating"] = m_rat.group(1)
+                        item["rating"] = m_rat.group(1).replace(",", ".")
 
                 if item["reviews"] == "0":
-                    m_rev = re.search(r'([0-9,]+)\s*reviews?', combined, re.I) or re.search(r'\(([0-9,]+)\)', combined)
+                    m_rev = re.search(r'([\d\.,\s]+)\s*(?:reviews|recensies|avis|bewertungen|opiniones|reseñas)', combined, re.I) or re.search(r'\(([\d\.,\s]+)\)', combined)
                     if m_rev:
-                        item["reviews"] = m_rev.group(1).replace(",", "")
+                        cleaned = re.sub(r'[^\d]', '', m_rev.group(1))
+                        if cleaned:
+                            item["reviews"] = cleaned
 
             # 2. Rating & Reviews Count - Full HTML Fallback if missing
             content = await page.content()
             if item["rating"] == "0.0":
                 m_rat = (
-                    re.search(r'class=[\"\']F7v25d[\"\'][^>]*?>\s*([0-5]\.[0-9])', content, re.I) or
-                    re.search(r'aria-label=[\"\']([0-5]\.[0-9])\s*stars?', content, re.I) or
-                    re.search(r'([0-5]\.[0-9])\s*stars?', content, re.I)
+                    re.search(r'class=[\"\']F7v25d[\"\'][^>]*?>\s*([0-5][\.,][0-9])', content, re.I) or
+                    re.search(r'aria-label=[\"\']([0-5][\.,][0-9])\s*(?:stars?|sterren)', content, re.I) or
+                    re.search(r'([0-5][\.,][0-9])\s*(?:stars?|sterren)', content, re.I)
                 )
                 if m_rat:
-                    item["rating"] = m_rat.group(1)
+                    item["rating"] = m_rat.group(1).replace(",", ".")
 
             if item["reviews"] == "0":
                 m_rev = (
-                    re.search(r'aria-label=[\"\'][^\"\']*?([0-9,]+)\s+reviews?[\"\']', content, re.I) or
-                    re.search(r'([0-9,]+)\s+(?:Google\s*)?reviews', content, re.I) or
-                    re.search(r'button[^>]*Dx2nRe[^>]*>.*?([0-9,]+)', content, re.I | re.DOTALL) or
-                    re.search(r'\(([0-9,]+)\)\s*(?:<|\s)', content)
+                    re.search(r'aria-label=[\"\'][^\"\']*?([\d\.,]+)\s+(?:reviews?|recensies|avis|bewertungen)[\"\']', content, re.I) or
+                    re.search(r'([\d\.,]+)\s+(?:Google\s*)?(?:reviews?|recensies|avis)', content, re.I) or
+                    re.search(r'button[^>]*Dx2nRe[^>]*>.*?([\d\.,]+)', content, re.I | re.DOTALL) or
+                    re.search(r'\(([\d\.,]+)\)\s*(?:<|\s)', content)
                 )
                 if m_rev:
-                    item["reviews"] = m_rev.group(1).replace(",", "")
+                    cleaned = re.sub(r'[^\d]', '', m_rev.group(1))
+                    if cleaned:
+                        item["reviews"] = cleaned
 
             # 3. First Review Snippet Extraction
             snippet_els = await page.query_selector_all(
@@ -1369,7 +1390,7 @@ class MapsScraper:
             # Fallback: Click Reviews tab if first_review is still missing
             if item["first_review"] == "N/A":
                 try:
-                    rev_tab = await page.query_selector('button[role="tab"][aria-label*="Reviews"], button[aria-label*="Reviews for"], button:has-text("Reviews")')
+                    rev_tab = await page.query_selector('button[role="tab"][aria-label*="Reviews"], button[role="tab"][aria-label*="Recensies"], button[aria-label*="Reviews for"], button:has-text("Reviews"), button:has-text("Recensies")')
                     if rev_tab:
                         await rev_tab.click()
                         await page.wait_for_timeout(1500)
@@ -1409,7 +1430,7 @@ class MapsScraper:
                 pass
 
             # --- WEBSITE EXTRACTION ---
-            web_btn = await page.query_selector('a[data-item-id="authority"], a[aria-label*="Website"], a[aria-label*="website"], a[data-tooltip*="Open website"], a[data-tooltip*="Website"]')
+            web_btn = await page.query_selector('a[data-item-id="authority"], a[aria-label*="Website"], a[aria-label*="website"], a[data-tooltip*="Website"], a[data-tooltip*="website"]')
             if web_btn:
                 href = await web_btn.get_attribute("href")
                 if href:
@@ -1425,17 +1446,18 @@ class MapsScraper:
                     l_href = (await l.get_attribute("href")) or ""
                     l_aria = (await l.get_attribute("aria-label")) or ""
                     l_ttip = (await l.get_attribute("data-tooltip")) or ""
+                    l_did = (await l.get_attribute("data-item-id")) or ""
                     if "google.com" not in l_href and "gstatic.com" not in l_href and "ggpht.com" not in l_href:
-                        if "website" in l_aria.lower() or "website" in l_ttip.lower() or (await l.get_attribute("data-item-id") or "") == "authority":
+                        if "website" in l_aria.lower() or "website" in l_ttip.lower() or l_did == "authority":
                             item["website"] = l_href
                             break
 
             # --- ADDRESS EXTRACTION ---
-            addr_btn = await page.query_selector('button[data-item-id="address"], button[aria-label*="Address:"], button[aria-label*="Address"], button[data-tooltip*="address"], button[data-tooltip*="Address"]')
+            addr_btn = await page.query_selector('button[data-item-id="address"], button[aria-label*="Address"], button[aria-label*="Adres"], button[aria-label*="Adresse"], button[data-tooltip*="address"], button[data-tooltip*="adres"]')
             if addr_btn:
                 addr_aria = await addr_btn.get_attribute("aria-label")
                 if addr_aria:
-                    item["address"] = re.sub(r'^(Address:|Address\s*)', '', addr_aria, flags=re.I).strip()
+                    item["address"] = re.sub(r'^(Address:|Address\s*|Adres:|Adres\s*|Adresse:|Adresse\s*)', '', addr_aria, flags=re.I).strip()
                 else:
                     addr_txt = (await addr_btn.inner_text()).strip()
                     if addr_txt and len(addr_txt) > 5:
@@ -1451,12 +1473,12 @@ class MapsScraper:
                         break
 
             # --- PHONE EXTRACTION ---
-            phone_btn = await page.query_selector('button[data-item-id^="phone:"], button[aria-label*="Phone:"], button[aria-label*="Phone"], button[data-tooltip*="phone"], button[data-tooltip*="Phone"]')
+            phone_btn = await page.query_selector('button[data-item-id^="phone"], button[aria-label*="Phone"], button[aria-label*="Telefoon"], button[aria-label*="Telefon"], button[data-tooltip*="phone"], button[data-tooltip*="telefoon"]')
             raw_ph = None
             if phone_btn:
                 phone_aria = await phone_btn.get_attribute("aria-label")
                 if phone_aria:
-                    raw_ph = re.sub(r'^(Phone:|Phone\s*)', '', phone_aria, flags=re.I).strip()
+                    raw_ph = re.sub(r'^(Phone:|Phone\s*|Telefoon:|Telefoon\s*|Telefon:|Telefon\s*)', '', phone_aria, flags=re.I).strip()
                 else:
                     raw_ph = (await phone_btn.inner_text()).strip()
 
