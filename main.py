@@ -61,11 +61,12 @@ def run_cli_mode(args):
     output_path = args.output if args.output else "google_maps_leads.csv"
     headless = args.headless
 
+    max_res_display = "UNLIMITED (Scrape until end of list)" if args.max_results <= 0 else args.max_results
     print("\n" + "=" * 75)
     print(" 🚀 LeadPulse Enterprise Extractor - Headless Server Mode")
     print("=" * 75)
     print(f" 📌 Total Queries to Extract : {len(queries)}")
-    print(f" 🎯 Max Results per Query   : {args.max_results}")
+    print(f" 🎯 Max Results per Query   : {max_res_display}")
     print(f" 🌐 Browser Execution       : {'HEADLESS (Server Mode)' if headless else 'VISIBLE UI'}")
     print(f" 💾 CSV Export Path         : {os.path.abspath(output_path)}")
     print("=" * 75 + "\n")
@@ -122,7 +123,7 @@ Examples:
     )
     parser.add_argument("-q", "--query", type=str, help="Single Google Maps search query")
     parser.add_argument("-f", "--file", type=str, help="Path to text file containing queries (1 per line)")
-    parser.add_argument("-m", "--max-results", type=int, default=100, help="Max leads to extract per query (default: 100)")
+    parser.add_argument("-m", "--max-results", type=int, default=0, help="Max leads to extract per query (default: 0 = UNLIMITED / Scrape until end of list)")
     parser.add_argument("-o", "--output", type=str, help="Output CSV export path")
     parser.add_argument("--cli", action="store_true", help="Force command line interface (CLI) mode")
     parser.add_argument("--gui", action="store_true", help="Force graphical user interface (GUI) mode")

@@ -506,24 +506,40 @@ class MapsScraper:
                     scraped_count = 0
                     previous_height = 0
                     stuck_counter = 0
+                    seen_place_urls = set()
+                    target_limit = float('inf') if (total_results is None or total_results <= 0) else total_results
+                    display_limit = "UNLIMITED" if target_limit == float('inf') else target_limit
 
-                    while scraped_count < total_results:
+                    while scraped_count < target_limit:
                         if stop_event and stop_event.is_set():
+                            break
+
+                        # Check for Google Maps "You've reached the end of the list" end banner
+                        end_banner = await page.query_selector(
+                            'span.Hvt42d, div.PbV8W, p.fontBodyMedium:has-text("end of the list"), '
+                            'span:has-text("reached the end"), div:has-text("You\'ve reached the end of the list")'
+                        )
+                        if end_banner:
+                            logger.info(f"🏁 Reached absolute end of Google Maps search results for query '{query}' ({scraped_count} leads total).")
                             break
 
                         # Find place links in results list
                         elements = await page.query_selector_all('a[href*="/maps/place/"]')
-                        
+                        new_items_found = False
+
                         for elem in elements:
-                            if scraped_count >= total_results:
+                            if scraped_count >= target_limit:
                                 break
                             if stop_event and stop_event.is_set():
                                 break
 
                             try:
                                 place_url = await elem.get_attribute("href")
-                                if not place_url:
+                                if not place_url or place_url in seen_place_urls:
                                     continue
+
+                                seen_place_urls.add(place_url)
+                                new_items_found = True
 
                                 # Open place detail view inside stealth context
                                 detail_page = await context.new_page()
@@ -568,7 +584,7 @@ class MapsScraper:
                                         self.db.insert_contacts(contacts)
 
                                     scraped_count += 1
-                                    logger.info(f"Successfully extracted [{scraped_count}/{total_results}]: {item.get('name')}")
+                                    logger.info(f"Successfully extracted [{scraped_count}/{display_limit}]: {item.get('name')}")
 
                                     if callback:
                                         meta = {
@@ -576,7 +592,7 @@ class MapsScraper:
                                             "total_queries": len(queries),
                                             "query_name": query,
                                             "current_count": scraped_count,
-                                            "max_results": total_results
+                                            "max_results": display_limit
                                         }
                                         await callback(item, meta)
 
@@ -594,10 +610,10 @@ class MapsScraper:
                             await feed.evaluate("node => node.scrollBy(0, 1000)")
                             await self._stealth_delay(1.5, 2.5)
 
-                            if current_height == previous_height:
+                            if current_height == previous_height and not new_items_found:
                                 stuck_counter += 1
-                                if stuck_counter >= 3:
-                                    logger.info(f"Stuck on stale results for query: {query}. Moving on.")
+                                if stuck_counter >= 4:
+                                    logger.info(f"End of feed reached or no new results for query '{query}'. Moving to next query.")
                                     break
                             else:
                                 stuck_counter = 0
