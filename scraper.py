@@ -386,18 +386,44 @@ class DeepCrawler:
 
 def ensure_playwright_browsers():
     """Ensure Playwright Chromium browser binary is downloaded and installed."""
+    import subprocess
+    import sys
+    
+    logger.info("Verifying/Installing Playwright Chromium browser binaries...")
+    
+    # Method 1: Try sys.executable -m playwright install chromium
+    try:
+        res = subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False, capture_output=True, text=True)
+        if res.returncode == 0:
+            logger.info("Playwright Chromium browser is ready.")
+            return True
+    except Exception:
+        pass
+
+    # Method 2: Fallback to playwright internal driver
     try:
         from playwright._impl._driver import compute_driver_executable, get_driver_env
-        import subprocess
         driver_executable, _ = compute_driver_executable()
         env = get_driver_env()
-        logger.info("Verifying/Installing Playwright Chromium browser binaries...")
-        subprocess.run([driver_executable, "install", "chromium"], env=env, check=True)
-        logger.info("Playwright Chromium browser is ready.")
-        return True
+        # Ensure node receives correct arguments without looking for file in CWD
+        res = subprocess.run([driver_executable, "cli", "install", "chromium"], env=env, check=False, capture_output=True, text=True)
+        if res.returncode == 0:
+            logger.info("Playwright Chromium browser is ready.")
+            return True
     except Exception as e:
-        logger.warning(f"Auto-installing Playwright Chromium failed: {e}")
-        return False
+        logger.warning(f"Internal driver install fallback error: {e}")
+
+    # Method 3: System playwright CLI call fallback
+    try:
+        res = subprocess.run(["playwright", "install", "chromium"], check=False, capture_output=True, text=True)
+        if res.returncode == 0:
+            logger.info("Playwright Chromium browser is ready.")
+            return True
+    except Exception:
+        pass
+
+    logger.warning("Could not auto-install Playwright Chromium via API. Using built-in browser path or auto-download fallback.")
+    return False
 
 import gc
 import random
