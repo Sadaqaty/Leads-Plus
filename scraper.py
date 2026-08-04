@@ -854,10 +854,15 @@ class ProxyManager:
     High-Performance Proxy Manager supporting HTTP, HTTPS, SOCKS4, and SOCKS5 proxies
     with auto-fetching from ProxyScrape API, hardcoded fallbacks, rotation, and automatic health monitoring.
     """
-    def __init__(self, proxy_list=None, proxy_file=None, fetch_live=True):
+    def __init__(self, proxy_list=None, proxy_file=None, fetch_live=True, no_proxy=False):
         self.proxies = []
         self.current_idx = 0
         self.unhealthy_proxies = set()
+        self.no_proxy = no_proxy
+
+        if no_proxy:
+            logger.info("🌐 Running in DIRECT IP mode (--no-proxy). Bypassing proxy pool.")
+            return
 
         # Load explicitly provided list
         if proxy_list:
@@ -995,10 +1000,10 @@ class ProxyManager:
             logger.warning(f"Marked proxy as unhealthy: {proxy['server']}")
 
 class MapsScraper:
-    def __init__(self, proxy_list=None, proxy_file=None):
+    def __init__(self, proxy_list=None, proxy_file=None, no_proxy=False):
         self.results = []
         self.db = DatabaseManager()
-        self.proxy_manager = ProxyManager(proxy_list=proxy_list, proxy_file=proxy_file)
+        self.proxy_manager = ProxyManager(proxy_list=proxy_list, proxy_file=proxy_file, no_proxy=no_proxy)
 
     async def _stealth_delay(self, min_sec=1.2, max_sec=2.8):
         """Randomized humanized jitter delay to prevent rate-limiting."""
@@ -1026,14 +1031,14 @@ class MapsScraper:
                     self.proxy_manager.mark_unhealthy(current_proxy)
                 if attempt == max_retries:
                     raise e
-                await asyncio.sleep(attempt * 2.0)
+                await asyncio.sleep(attempt * 1.5)
 
-    async def scrape_maps(self, queries, total_results=10, callback=None, stop_event=None, headless=True, proxy_list=None, proxy_file=None):
+    async def scrape_maps(self, queries, total_results=10, callback=None, stop_event=None, headless=True, proxy_list=None, proxy_file=None, no_proxy=False):
         if isinstance(queries, str):
             queries = [queries]
 
-        if proxy_list or proxy_file:
-            self.proxy_manager = ProxyManager(proxy_list=proxy_list, proxy_file=proxy_file)
+        if proxy_list or proxy_file or no_proxy:
+            self.proxy_manager = ProxyManager(proxy_list=proxy_list, proxy_file=proxy_file, no_proxy=no_proxy)
 
         chromium_args = [
             '--disable-dev-shm-usage',
@@ -1065,183 +1070,198 @@ class MapsScraper:
                     break
                     
                 logger.info(f"Processing query [{q_idx}/{len(queries)}]: {query}")
-                
-                # Fetch next active proxy from ProxyManager if configured
-                current_proxy = self.proxy_manager.get_next_proxy()
-                if current_proxy:
-                    logger.info(f"🌐 Rotating stealth proxy: {current_proxy['server']}")
+                search_url = f"https://www.google.com/maps/search/{quote(query)}"
 
-                # Rotate user agent and create stealth context
-                ua = random.choice(USER_AGENTS)
-                context_kwargs = {
-                    "user_agent": ua,
-                    "viewport": {"width": 1920, "height": 1080},
-                    "locale": "en-US"
-                }
-                if current_proxy:
-                    proxy_cfg = {"server": current_proxy["server"]}
-                    if "username" in current_proxy and "password" in current_proxy:
-                        proxy_cfg["username"] = current_proxy["username"]
-                        proxy_cfg["password"] = current_proxy["password"]
-                    context_kwargs["proxy"] = proxy_cfg
+                page = None
+                context = None
+                nav_success = False
 
-                context = await browser.new_context(**context_kwargs)
-                await context.add_init_script(STEALTH_JS)
-                page = await context.new_page()
-                
+                # Navigation retry loop with dynamic proxy fallback & Direct IP fallback
+                for nav_attempt in range(1, 4):
+                    current_proxy = self.proxy_manager.get_next_proxy() if nav_attempt < 3 else None
+                    if current_proxy:
+                        logger.info(f"🌐 Rotating stealth proxy (attempt {nav_attempt}/3): {current_proxy['server']}")
+                    else:
+                        logger.info(f"🌐 Using Direct IP Connection for query '{query}'...")
+
+                    ua = random.choice(USER_AGENTS)
+                    context_kwargs = {
+                        "user_agent": ua,
+                        "viewport": {"width": 1920, "height": 1080},
+                        "locale": "en-US"
+                    }
+                    if current_proxy:
+                        proxy_cfg = {"server": current_proxy["server"]}
+                        if "username" in current_proxy and "password" in current_proxy:
+                            proxy_cfg["username"] = current_proxy["username"]
+                            proxy_cfg["password"] = current_proxy["password"]
+                        context_kwargs["proxy"] = proxy_cfg
+
+                    try:
+                        context = await browser.new_context(**context_kwargs)
+                        await context.add_init_script(STEALTH_JS)
+                        page = await context.new_page()
+                        await self._navigate_with_retry(page, search_url, max_retries=1, timeout=20000, current_proxy=current_proxy)
+                        nav_success = True
+                        break
+                    except Exception as e:
+                        logger.warning(f"Query navigation attempt {nav_attempt} failed: {e}")
+                        if context:
+                            await context.close()
+                            context = None
+
+                if not nav_success or not page:
+                    logger.error(f"Error executing query '{query}': All navigation attempts failed.")
+                    continue
+
+                await self._stealth_delay(1.5, 3.0)
+
+                # Automatically dismiss Google cookie consent overlay if present
                 try:
-                    search_url = f"https://www.google.com/maps/search/{quote(query)}"
-                    await self._navigate_with_retry(page, search_url, max_retries=3, current_proxy=current_proxy)
-                    await self._stealth_delay(1.5, 3.0)
+                    consent_btn = await page.query_selector('button[aria-label*="Accept all"], button[aria-label*="I agree"], form[action*="consent"] button, button[aria-label*="Reject all"]')
+                    if consent_btn:
+                        await consent_btn.click()
+                        await page.wait_for_timeout(1000)
+                except Exception:
+                    pass
 
-                    # Automatically dismiss Google cookie consent overlay if present
-                    try:
-                        consent_btn = await page.query_selector('button[aria-label*="Accept all"], button[aria-label*="I agree"], form[action*="consent"] button, button[aria-label*="Reject all"]')
-                        if consent_btn:
-                            await consent_btn.click()
-                            await page.wait_for_timeout(1000)
-                    except Exception:
-                        pass
+                # Fallback fill search box if direct URL did not trigger search
+                try:
+                    search_input = await page.query_selector('input#searchboxinput, input.searchboxinput, input[name="q"], input[aria-label*="Search"]')
+                    if search_input and not (await page.query_selector('div[role="feed"], a[href*="/maps/place/"]')):
+                        await search_input.fill(query)
+                        await page.keyboard.press("Enter")
+                        await page.wait_for_timeout(3000)
+                except Exception:
+                    pass
 
-                    # Fallback fill search box if direct URL did not trigger search
-                    try:
-                        search_input = await page.query_selector('input#searchboxinput, input.searchboxinput, input[name="q"], input[aria-label*="Search"]')
-                        if search_input and not (await page.query_selector('div[role="feed"], a[href*="/maps/place/"]')):
-                            await search_input.fill(query)
-                            await page.keyboard.press("Enter")
-                            await page.wait_for_timeout(3000)
-                    except Exception:
-                        pass
+                # Wait for search result feed or place links
+                try:
+                    await page.wait_for_selector('div[role="feed"], a[href*="/maps/place/"]', timeout=15000)
+                except Exception as wait_err:
+                    logger.warning(f"Wait for feed selector timed out ({wait_err}), proceeding with DOM extraction...")
 
-                    # Wait for search result feed or place links
-                    try:
-                        await page.wait_for_selector('div[role="feed"], a[href*="/maps/place/"]', timeout=15000)
-                    except Exception as wait_err:
-                        logger.warning(f"Wait for feed selector timed out ({wait_err}), proceeding with DOM extraction...")
+                scraped_count = 0
+                previous_height = 0
+                stuck_counter = 0
+                seen_place_urls = set()
+                target_limit = float('inf') if (total_results is None or total_results <= 0) else total_results
+                display_limit = "UNLIMITED" if target_limit == float('inf') else target_limit
 
-                    scraped_count = 0
-                    previous_height = 0
-                    stuck_counter = 0
-                    seen_place_urls = set()
-                    target_limit = float('inf') if (total_results is None or total_results <= 0) else total_results
-                    display_limit = "UNLIMITED" if target_limit == float('inf') else target_limit
+                while scraped_count < target_limit:
+                    if stop_event and stop_event.is_set():
+                        break
 
-                    while scraped_count < target_limit:
+                    # Check for Google Maps "You've reached the end of the list" end banner
+                    end_banner = await page.query_selector(
+                        'span.Hvt42d, div.PbV8W, p.fontBodyMedium:has-text("end of the list"), '
+                        'span:has-text("reached the end"), div:has-text("You\'ve reached the end of the list")'
+                    )
+                    if end_banner:
+                        logger.info(f"🏁 Reached absolute end of Google Maps search results for query '{query}' ({scraped_count} leads total).")
+                        break
+
+                    # Find place links in results list
+                    elements = await page.query_selector_all('a[href*="/maps/place/"]')
+                    new_items_found = False
+
+                    for elem in elements:
+                        if scraped_count >= target_limit:
+                            break
                         if stop_event and stop_event.is_set():
                             break
 
-                        # Check for Google Maps "You've reached the end of the list" end banner
-                        end_banner = await page.query_selector(
-                            'span.Hvt42d, div.PbV8W, p.fontBodyMedium:has-text("end of the list"), '
-                            'span:has-text("reached the end"), div:has-text("You\'ve reached the end of the list")'
-                        )
-                        if end_banner:
-                            logger.info(f"🏁 Reached absolute end of Google Maps search results for query '{query}' ({scraped_count} leads total).")
-                            break
-
-                        # Find place links in results list
-                        elements = await page.query_selector_all('a[href*="/maps/place/"]')
-                        new_items_found = False
-
-                        for elem in elements:
-                            if scraped_count >= target_limit:
-                                break
-                            if stop_event and stop_event.is_set():
-                                break
-
-                            try:
-                                place_url = await elem.get_attribute("href")
-                                if not place_url or place_url in seen_place_urls:
-                                    continue
-
-                                seen_place_urls.add(place_url)
-                                new_items_found = True
-
-                                # Open place detail view inside stealth context
-                                detail_page = await context.new_page()
-                                await self._navigate_with_retry(detail_page, place_url, max_retries=2, timeout=20000, current_proxy=current_proxy)
-                                await self._stealth_delay(1.0, 2.2)
-
-                                item = await self._parse_place_details(detail_page, query)
-                                await detail_page.close()
-
-                                if item and item.get("place_id") != "N/A":
-                                    # Deep web crawl if website is present
-                                    website = item.get("website", "N/A")
-                                    contacts = []
-                                    emails = set()
-                                    phones = set()
-                                    socials = {}
-
-                                    if website != "N/A" and website.startswith("http"):
-                                        logger.info(f"Deep crawling website: {website}")
-                                        crawler = DeepCrawler(browser)
-                                        contacts, emails, phones, socials = await crawler.crawl_site(website, stop_event=stop_event, address=item.get("address"), query=query)
-
-                                    # Enrich item with deep crawl results
-                                    if emails:
-                                        valid_email_list = list(emails)
-                                        item["email"] = valid_email_list[0]
-                                        item["contacts_count"] = len(valid_email_list)
-                                    if phones and item.get("phone") == "N/A":
-                                        item["phone"] = list(phones)[0]
-                                        
-                                    for s_name, s_url in socials.items():
-                                        if item.get(s_name) == "N/A":
-                                            item[s_name] = s_url
-
-                                    # Save Lead directly to Supabase & local SQLite
-                                    self.db.insert_lead(item)
-
-                                    # Save discovered Contacts in a single bulk operation
-                                    if contacts:
-                                        for c in contacts:
-                                            c["lead_place_id"] = item["place_id"]
-                                        self.db.insert_contacts(contacts)
-
-                                    scraped_count += 1
-                                    logger.info(f"Successfully extracted [{scraped_count}/{display_limit}]: {item.get('name')}")
-
-                                    if callback:
-                                        meta = {
-                                            "query_idx": q_idx,
-                                            "total_queries": len(queries),
-                                            "query_name": query,
-                                            "current_count": scraped_count,
-                                            "max_results": display_limit
-                                        }
-                                        await callback(item, meta)
-
-                                    # Humanized jitter pause between extractions
-                                    await self._stealth_delay(0.8, 1.8)
-
-                            except Exception as elem_err:
-                                logger.warning(f"Error parsing place item: {elem_err}")
+                        try:
+                            place_url = await elem.get_attribute("href")
+                            if not place_url or place_url in seen_place_urls:
                                 continue
 
-                        # Scroll feed to load more places
-                        feed = await page.query_selector('div[role="feed"]')
-                        if feed:
-                            current_height = await feed.evaluate("node => node.scrollHeight")
-                            await feed.evaluate("node => node.scrollBy(0, 1000)")
-                            await self._stealth_delay(1.5, 2.5)
+                            seen_place_urls.add(place_url)
+                            new_items_found = True
 
-                            if current_height == previous_height and not new_items_found:
-                                stuck_counter += 1
-                                if stuck_counter >= 4:
-                                    logger.info(f"End of feed reached or no new results for query '{query}'. Moving to next query.")
-                                    break
-                            else:
-                                stuck_counter = 0
-                            previous_height = current_height
+                            # Open place detail view inside stealth context
+                            detail_page = await context.new_page()
+                            await self._navigate_with_retry(detail_page, place_url, max_retries=2, timeout=20000, current_proxy=current_proxy)
+                            await self._stealth_delay(1.0, 2.2)
 
-                except Exception as query_err:
-                    logger.error(f"Error executing query '{query}': {query_err}")
-                finally:
+                            item = await self._parse_place_details(detail_page, query)
+                            await detail_page.close()
+
+                            if item and item.get("place_id") != "N/A":
+                                # Deep web crawl if website is present
+                                website = item.get("website", "N/A")
+                                contacts = []
+                                emails = set()
+                                phones = set()
+                                socials = {}
+
+                                if website != "N/A" and website.startswith("http"):
+                                    logger.info(f"Deep crawling website: {website}")
+                                    crawler = DeepCrawler(browser)
+                                    contacts, emails, phones, socials = await crawler.crawl_site(website, stop_event=stop_event, address=item.get("address"), query=query)
+
+                                # Enrich item with deep crawl results
+                                if emails:
+                                    valid_email_list = list(emails)
+                                    item["email"] = valid_email_list[0]
+                                    item["contacts_count"] = len(valid_email_list)
+                                if phones and item.get("phone") == "N/A":
+                                    item["phone"] = list(phones)[0]
+                                    
+                                for s_name, s_url in socials.items():
+                                    if item.get(s_name) == "N/A":
+                                        item[s_name] = s_url
+
+                                # Save Lead directly to Supabase & local SQLite
+                                self.db.insert_lead(item)
+
+                                # Save discovered Contacts in a single bulk operation
+                                if contacts:
+                                    for c in contacts:
+                                        c["lead_place_id"] = item["place_id"]
+                                    self.db.insert_contacts(contacts)
+
+                                scraped_count += 1
+                                logger.info(f"Successfully extracted [{scraped_count}/{display_limit}]: {item.get('name')}")
+
+                                if callback:
+                                    meta = {
+                                        "query_idx": q_idx,
+                                        "total_queries": len(queries),
+                                        "query_name": query,
+                                        "current_count": scraped_count,
+                                        "max_results": display_limit
+                                    }
+                                    await callback(item, meta)
+
+                                # Humanized jitter pause between extractions
+                                await self._stealth_delay(0.8, 1.8)
+
+                        except Exception as elem_err:
+                            logger.warning(f"Error parsing place item: {elem_err}")
+                            continue
+
+                    # Scroll feed to load more places
+                    feed = await page.query_selector('div[role="feed"]')
+                    if feed:
+                        current_height = await feed.evaluate("node => node.scrollHeight")
+                        await feed.evaluate("node => node.scrollBy(0, 1000)")
+                        await self._stealth_delay(1.5, 2.5)
+
+                        if current_height == previous_height and not new_items_found:
+                            stuck_counter += 1
+                            if stuck_counter >= 4:
+                                logger.info(f"End of feed reached or no new results for query '{query}'. Moving to next query.")
+                                break
+                        else:
+                            stuck_counter = 0
+                        previous_height = current_height
+
+                if page:
                     await page.close()
+                if context:
                     await context.close()
-                    # Trigger immediate RAM garbage collection to keep VPS memory footprint minimal
-                    gc.collect()
+                gc.collect()
 
             await browser.close()
 

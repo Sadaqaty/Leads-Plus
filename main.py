@@ -95,7 +95,8 @@ def run_cli_mode(args):
             callback=cli_callback,
             headless=headless,
             proxy_list=args.proxy,
-            proxy_file=args.proxy_file
+            proxy_file=args.proxy_file,
+            no_proxy=getattr(args, 'no_proxy', False)
         )
 
     try:
@@ -134,6 +135,7 @@ Examples:
     parser.add_argument("-o", "--output", type=str, help="Output CSV export path")
     parser.add_argument("-p", "--proxy", type=str, help="Proxy URL or string (e.g. http://user:pass@ip:port or ip:port:user:pass)")
     parser.add_argument("--proxy-file", type=str, help="Path to file containing proxies (1 per line)")
+    parser.add_argument("--no-proxy", "--direct", action="store_true", help="Disable proxies and connect directly using server IP")
     parser.add_argument("--cli", action="store_true", help="Force command line interface (CLI) mode")
     parser.add_argument("--gui", action="store_true", help="Force graphical user interface (GUI) mode")
     parser.add_argument("--no-headless", action="store_false", dest="headless", help="Disable headless mode (show browser)")
