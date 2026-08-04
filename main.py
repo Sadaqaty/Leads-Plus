@@ -72,7 +72,7 @@ def run_cli_mode(args):
     print("=" * 75 + "\n")
 
     db = DatabaseManager()
-    scraper = MapsScraper()
+    scraper = MapsScraper(proxy_list=args.proxy, proxy_file=args.proxy_file)
     total_extracted = 0
 
     async def cli_callback(item, meta):
@@ -90,7 +90,9 @@ def run_cli_mode(args):
             queries,
             total_results=args.max_results,
             callback=cli_callback,
-            headless=headless
+            headless=headless,
+            proxy_list=args.proxy,
+            proxy_file=args.proxy_file
         )
 
     try:
@@ -125,6 +127,8 @@ Examples:
     parser.add_argument("-f", "--file", type=str, help="Path to text file containing queries (1 per line)")
     parser.add_argument("-m", "--max-results", type=int, default=0, help="Max leads to extract per query (default: 0 = UNLIMITED / Scrape until end of list)")
     parser.add_argument("-o", "--output", type=str, help="Output CSV export path")
+    parser.add_argument("-p", "--proxy", type=str, help="Proxy URL or string (e.g. http://user:pass@ip:port or ip:port:user:pass)")
+    parser.add_argument("--proxy-file", type=str, help="Path to file containing proxies (1 per line)")
     parser.add_argument("--cli", action="store_true", help="Force command line interface (CLI) mode")
     parser.add_argument("--gui", action="store_true", help="Force graphical user interface (GUI) mode")
     parser.add_argument("--no-headless", action="store_false", dest="headless", help="Disable headless mode (show browser)")

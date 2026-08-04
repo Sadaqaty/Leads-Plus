@@ -401,6 +401,7 @@ def ensure_playwright_browsers():
 
 import gc
 import random
+from urllib.parse import urlparse
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -423,18 +424,144 @@ WebGLRenderingContext.prototype.getParameter = function(parameter) {
 };
 """
 
+class ProxyManager:
+    """
+    High-Performance Proxy Manager supporting HTTP, HTTPS, SOCKS4, and SOCKS5 proxies
+    with format parsing, rotation, and automatic health monitoring.
+    """
+    def __init__(self, proxy_list=None, proxy_file=None):
+        self.proxies = []
+        self.current_idx = 0
+        self.unhealthy_proxies = set()
+
+        if proxy_list:
+            if isinstance(proxy_list, str):
+                proxy_list = [proxy_list]
+            for p in proxy_list:
+                parsed = self.parse_proxy(p)
+                if parsed:
+                    self.proxies.append(parsed)
+
+        if proxy_file and os.path.exists(proxy_file):
+            try:
+                with open(proxy_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            parsed = self.parse_proxy(line)
+                            if parsed:
+                                self.proxies.append(parsed)
+            except Exception as e:
+                logger.warning(f"Error reading proxy file '{proxy_file}': {e}")
+
+        # Fallback to environment variables
+        if not self.proxies:
+            env_proxy = os.getenv("PROXIES", "") or os.getenv("HTTP_PROXY", "") or os.getenv("HTTPS_PROXY", "")
+            if env_proxy:
+                for p in env_proxy.split(","):
+                    parsed = self.parse_proxy(p.strip())
+                    if parsed:
+                        self.proxies.append(parsed)
+            
+            env_file = os.getenv("PROXY_LIST_FILE", "")
+            if env_file and os.path.exists(env_file):
+                try:
+                    with open(env_file, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith("#"):
+                                parsed = self.parse_proxy(line)
+                                if parsed:
+                                    self.proxies.append(parsed)
+                except Exception:
+                    pass
+
+        if self.proxies:
+            logger.info(f"Loaded {len(self.proxies)} proxies into ProxyManager.")
+
+    @staticmethod
+    def parse_proxy(proxy_str):
+        if not proxy_str or not isinstance(proxy_str, str):
+            return None
+        proxy_str = proxy_str.strip()
+
+        # Format: host:port:user:pass
+        if not proxy_str.startswith(("http://", "https://", "socks5://", "socks4://")):
+            parts = proxy_str.split(":")
+            if len(parts) == 4:
+                host, port, user, password = parts
+                return {"server": f"http://{host}:{port}", "username": user, "password": password, "raw": proxy_str}
+            elif len(parts) == 2:
+                host, port = parts
+                return {"server": f"http://{host}:{port}", "raw": proxy_str}
+            else:
+                proxy_str = f"http://{proxy_str}"
+
+        try:
+            parsed = urlparse(proxy_str)
+            scheme = parsed.scheme or "http"
+            netloc = parsed.netloc or parsed.path
+
+            if "@" in netloc:
+                auth, host_port = netloc.split("@", 1)
+                user, password = auth.split(":", 1) if ":" in auth else (auth, "")
+                return {"server": f"{scheme}://{host_port}", "username": user, "password": password, "raw": proxy_str}
+            else:
+                return {"server": f"{scheme}://{netloc}", "raw": proxy_str}
+        except Exception as e:
+            logger.warning(f"Could not parse proxy string '{proxy_str}': {e}")
+            return None
+
+    def get_next_proxy(self):
+        if not self.proxies:
+            return None
+
+        healthy = [p for p in self.proxies if p["raw"] not in self.unhealthy_proxies]
+        if not healthy:
+            logger.warning("All proxies marked unhealthy! Resetting health status pool...")
+            self.unhealthy_proxies.clear()
+            healthy = self.proxies
+
+        proxy = healthy[self.current_idx % len(healthy)]
+        self.current_idx += 1
+        return proxy
+
+    def mark_unhealthy(self, proxy):
+        if proxy and "raw" in proxy:
+            self.unhealthy_proxies.add(proxy["raw"])
+            logger.warning(f"Marked proxy as unhealthy: {proxy['server']}")
+
 class MapsScraper:
-    def __init__(self):
+    def __init__(self, proxy_list=None, proxy_file=None):
         self.results = []
         self.db = DatabaseManager()
+        self.proxy_manager = ProxyManager(proxy_list=proxy_list, proxy_file=proxy_file)
 
     async def _stealth_delay(self, min_sec=1.2, max_sec=2.8):
         """Randomized humanized jitter delay to prevent rate-limiting."""
         await asyncio.sleep(random.uniform(min_sec, max_sec))
 
-    async def scrape_maps(self, queries, total_results=10, callback=None, stop_event=None, headless=True):
+    async def _navigate_with_retry(self, page, url, max_retries=3, timeout=30000, current_proxy=None):
+        """Navigate to URL with exponential backoff and proxy health tracking."""
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
+                return response
+            except Exception as e:
+                err_str = str(e)
+                logger.warning(f"Navigation attempt {attempt}/{max_retries} failed for {url} ({err_str})")
+                if current_proxy and ("net::ERR" in err_str or "PROXY" in err_str.upper() or "Timeout" in err_str):
+                    self.proxy_manager.mark_unhealthy(current_proxy)
+                if attempt == max_retries:
+                    raise e
+                await asyncio.sleep(attempt * 2.0)
+
+    async def scrape_maps(self, queries, total_results=10, callback=None, stop_event=None, headless=True, proxy_list=None, proxy_file=None):
         if isinstance(queries, str):
             queries = [queries]
+
+        if proxy_list or proxy_file:
+            self.proxy_manager = ProxyManager(proxy_list=proxy_list, proxy_file=proxy_file)
 
         chromium_args = [
             '--disable-dev-shm-usage',
@@ -463,19 +590,32 @@ class MapsScraper:
                     
                 logger.info(f"Processing query [{q_idx}/{len(queries)}]: {query}")
                 
+                # Fetch next active proxy from ProxyManager if configured
+                current_proxy = self.proxy_manager.get_next_proxy()
+                if current_proxy:
+                    logger.info(f"🌐 Rotating stealth proxy: {current_proxy['server']}")
+
                 # Rotate user agent and create stealth context
                 ua = random.choice(USER_AGENTS)
-                context = await browser.new_context(
-                    user_agent=ua,
-                    viewport={"width": 1920, "height": 1080},
-                    locale="en-US"
-                )
+                context_kwargs = {
+                    "user_agent": ua,
+                    "viewport": {"width": 1920, "height": 1080},
+                    "locale": "en-US"
+                }
+                if current_proxy:
+                    proxy_cfg = {"server": current_proxy["server"]}
+                    if "username" in current_proxy and "password" in current_proxy:
+                        proxy_cfg["username"] = current_proxy["username"]
+                        proxy_cfg["password"] = current_proxy["password"]
+                    context_kwargs["proxy"] = proxy_cfg
+
+                context = await browser.new_context(**context_kwargs)
                 await context.add_init_script(STEALTH_JS)
                 page = await context.new_page()
                 
                 try:
                     search_url = f"https://www.google.com/maps/search/{quote(query)}"
-                    await page.goto(search_url, timeout=30000, wait_until="domcontentloaded")
+                    await self._navigate_with_retry(page, search_url, max_retries=3, current_proxy=current_proxy)
                     await self._stealth_delay(1.5, 3.0)
 
                     # Automatically dismiss Google cookie consent overlay if present
@@ -543,7 +683,7 @@ class MapsScraper:
 
                                 # Open place detail view inside stealth context
                                 detail_page = await context.new_page()
-                                await detail_page.goto(place_url, timeout=20000, wait_until="domcontentloaded")
+                                await self._navigate_with_retry(detail_page, place_url, max_retries=2, timeout=20000, current_proxy=current_proxy)
                                 await self._stealth_delay(1.0, 2.2)
 
                                 item = await self._parse_place_details(detail_page, query)
