@@ -1473,10 +1473,12 @@ class MapsScraper:
             if addr_btn:
                 addr_aria = await addr_btn.get_attribute("aria-label")
                 if addr_aria:
-                    item["address"] = re.sub(r'^(Address:|Address\s*|Adres:|Adres\s*|Adresse:|Adresse\s*)', '', addr_aria, flags=re.I).strip()
-                else:
+                    clean_aria = re.sub(r'^(Address:|Address\s*|Adres:|Adres\s*|Adresse:|Adresse\s*)', '', addr_aria, flags=re.I).strip()
+                    if clean_aria and "\n" not in clean_aria and len(clean_aria) < 180:
+                        item["address"] = clean_aria
+                if item["address"] == "N/A":
                     addr_txt = (await addr_btn.inner_text()).strip()
-                    if addr_txt and len(addr_txt) > 5:
+                    if addr_txt and "\n" not in addr_txt and len(addr_txt) > 5 and len(addr_txt) < 180:
                         item["address"] = addr_txt
 
             # --- PHONE EXTRACTION ---
@@ -1490,7 +1492,7 @@ class MapsScraper:
                     raw_ph = (await phone_btn.inner_text()).strip()
 
             # --- UNIVERSAL INFO SECTION SCAN (div.Io6YTe / button.CsA25) for Address & Phone ---
-            info_nodes = await page.query_selector_all('div.Io6YTe, button.CsA25, button.Io6YTe, div.fontBodyMedium')
+            info_nodes = await page.query_selector_all('div.Io6YTe, button.CsA25, button.Io6YTe')
             for node in info_nodes:
                 node_text = (await node.inner_text()).strip()
                 if not node_text or len(node_text) < 4:
@@ -1501,13 +1503,27 @@ class MapsScraper:
                     if not any(c in node_text for c in ['@', 'http', ':', '$', ',']):
                         raw_ph = node_text
 
-                # Address Check
+                # Strict Address Check
                 if item["address"] == "N/A":
-                    if ("," in node_text or any(k in node_text for k in ["Street", " St", " Ave", " Rd", " Blvd", " Suite", " Suite", " Way", " Drive", " Dr"])) and len(node_text) > 8:
-                        if not re.search(r'^\+?[0-9\s\-\(\)]+$', node_text) and not node_text.startswith("http") and not any(k in node_text.lower() for k in ["open", "closed", "hours", "reviews", "star", "claim"]):
+                    node_lower = node_text.lower()
+                    has_addr_indicator = ("," in node_text or any(k in node_text for k in ["Street", " St", " Ave", " Rd", " Blvd", " Suite", " Way", " Drive", " Dr", " Lane", " Ln", " Highway", " Hw", " Place", " Plz", " Court", " Ct", " Building"]))
+                    is_review_junk = any(kw in node_lower for kw in [
+                        "review", "star", "ago", "like", "share", "response", "owner", 
+                        "month", "year", "week", "day", "edited", "translated", "guide", 
+                        "local", "photo", "menu", "claim", "keyboard", "hours", "open", "closed"
+                    ])
+                    if has_addr_indicator and not is_review_junk and "\n" not in node_text and len(node_text) > 8 and len(node_text) < 180:
+                        if not re.search(r'^\+?[0-9\s\-\(\)]+$', node_text) and not node_text.startswith("http"):
                             item["address"] = node_text
 
-            # HTML Regex Fallback for Phone
+            # HTML Regex Fallbacks for Address & Phone if still missing
+            if item["address"] == "N/A":
+                m_addr = re.search(r'data-item-id=[\"\']address[\"\'][^>]*?>.*?class=[\"\']Io6YTe[^>]*?>([^<]+)', content, re.I | re.DOTALL) or re.search(r'aria-label=[\"\'](?:Address|Adres):\s*([^\"\']+)[\"\']', content, re.I)
+                if m_addr:
+                    c_addr = m_addr.group(1).strip()
+                    if c_addr and "\n" not in c_addr and len(c_addr) < 180:
+                        item["address"] = c_addr
+
             if not raw_ph or raw_ph == "N/A":
                 m_ph = re.search(r'data-item-id=[\"\']phone:tel:([^\"\'\s>]+)[\"\']', content, re.I) or re.search(r'href=[\"\']tel:([^\"\'\s>]+)[\"\']', content, re.I)
                 if m_ph:
