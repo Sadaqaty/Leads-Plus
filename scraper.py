@@ -399,22 +399,61 @@ def ensure_playwright_browsers():
         logger.warning(f"Auto-installing Playwright Chromium failed: {e}")
         return False
 
+import gc
+import random
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0"
+]
+
+STEALTH_JS = """
+Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+window.chrome = { runtime: { OnInstalledReason: {}, OnRestartRequiredReason: {} } };
+Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+const getParameter = WebGLRenderingContext.prototype.getParameter;
+WebGLRenderingContext.prototype.getParameter = function(parameter) {
+    if (parameter === 37445) return 'Google Inc. (NVIDIA)';
+    if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)';
+    return getParameter.apply(this, [parameter]);
+};
+"""
+
 class MapsScraper:
     def __init__(self):
         self.results = []
         self.db = DatabaseManager()
 
+    async def _stealth_delay(self, min_sec=1.2, max_sec=2.8):
+        """Randomized humanized jitter delay to prevent rate-limiting."""
+        await asyncio.sleep(random.uniform(min_sec, max_sec))
+
     async def scrape_maps(self, queries, total_results=10, callback=None, stop_event=None, headless=True):
         if isinstance(queries, str):
             queries = [queries]
 
+        chromium_args = [
+            '--disable-dev-shm-usage',
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-extensions',
+            '--js-flags=--max-old-space-size=256',
+            '--disable-blink-features=AutomationControlled'
+        ]
+
         async with async_playwright() as p:
             try:
-                browser = await p.chromium.launch(headless=headless)
+                browser = await p.chromium.launch(headless=headless, args=chromium_args)
             except Exception as launch_err:
                 logger.warning(f"Initial browser launch failed ({launch_err}). Auto-installing Playwright Chromium binaries...")
                 ensure_playwright_browsers()
-                browser = await p.chromium.launch(headless=headless)
+                browser = await p.chromium.launch(headless=headless, args=chromium_args)
 
             self.browser = browser
 
@@ -423,12 +462,21 @@ class MapsScraper:
                     break
                     
                 logger.info(f"Processing query [{q_idx}/{len(queries)}]: {query}")
-                page = await browser.new_page()
+                
+                # Rotate user agent and create stealth context
+                ua = random.choice(USER_AGENTS)
+                context = await browser.new_context(
+                    user_agent=ua,
+                    viewport={"width": 1920, "height": 1080},
+                    locale="en-US"
+                )
+                await context.add_init_script(STEALTH_JS)
+                page = await context.new_page()
                 
                 try:
                     search_url = f"https://www.google.com/maps/search/{quote(query)}"
                     await page.goto(search_url, timeout=30000, wait_until="domcontentloaded")
-                    await page.wait_for_timeout(2500)
+                    await self._stealth_delay(1.5, 3.0)
 
                     # Automatically dismiss Google cookie consent overlay if present
                     try:
@@ -477,10 +525,10 @@ class MapsScraper:
                                 if not place_url:
                                     continue
 
-                                # Open place detail view
-                                detail_page = await browser.new_page()
+                                # Open place detail view inside stealth context
+                                detail_page = await context.new_page()
                                 await detail_page.goto(place_url, timeout=20000, wait_until="domcontentloaded")
-                                await detail_page.wait_for_timeout(1500)
+                                await self._stealth_delay(1.0, 2.2)
 
                                 item = await self._parse_place_details(detail_page, query)
                                 await detail_page.close()
@@ -510,7 +558,7 @@ class MapsScraper:
                                         if item.get(s_name) == "N/A":
                                             item[s_name] = s_url
 
-                                    # Save Lead to Supabase & SQLite
+                                    # Save Lead directly to Supabase & local SQLite
                                     self.db.insert_lead(item)
 
                                     # Save discovered Contacts in a single bulk operation
@@ -532,6 +580,9 @@ class MapsScraper:
                                         }
                                         await callback(item, meta)
 
+                                    # Humanized jitter pause between extractions
+                                    await self._stealth_delay(0.8, 1.8)
+
                             except Exception as elem_err:
                                 logger.warning(f"Error parsing place item: {elem_err}")
                                 continue
@@ -541,7 +592,7 @@ class MapsScraper:
                         if feed:
                             current_height = await feed.evaluate("node => node.scrollHeight")
                             await feed.evaluate("node => node.scrollBy(0, 1000)")
-                            await page.wait_for_timeout(2000)
+                            await self._stealth_delay(1.5, 2.5)
 
                             if current_height == previous_height:
                                 stuck_counter += 1
@@ -556,6 +607,9 @@ class MapsScraper:
                     logger.error(f"Error executing query '{query}': {query_err}")
                 finally:
                     await page.close()
+                    await context.close()
+                    # Trigger immediate RAM garbage collection to keep VPS memory footprint minimal
+                    gc.collect()
 
             await browser.close()
 
