@@ -4,6 +4,13 @@ import os
 import argparse
 import asyncio
 import logging
+from datetime import datetime
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 def get_resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
@@ -81,6 +88,7 @@ def run_cli_mode(args):
     async def cli_callback(item, meta):
         nonlocal total_extracted
         total_extracted += 1
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         name = item.get("name", "N/A")
         cat = item.get("main_category", "N/A")
         phone = item.get("phone", "N/A")
@@ -94,7 +102,7 @@ def run_cli_mode(args):
         web_str = f" | 🌐 {website[:35]}" if website != "N/A" else ""
         cat_str = f" [{cat}]" if cat != "N/A" else ""
         
-        print(f"[{meta['current_count']}/{meta['max_results']}] Extracted: {name}{cat_str}{web_str} | 📞 {phone} | ✉️ {email}{social_str} | ⭐ {rating} ({reviews} rev)")
+        print(f"[{now_str}] [{meta['current_count']}/{meta['max_results']}] Extracted: {name}{cat_str}{web_str} | 📞 {phone} | ✉️ {email}{social_str} | ⭐ {rating} ({reviews} rev)")
 
     async def main_async():
         await scraper.scrape_maps(

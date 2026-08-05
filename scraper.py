@@ -11,7 +11,11 @@ from email_validator import validate_email, EmailNotValidError
 import phonenumbers
 from country_data import ALL_CCTLD_MAP, COUNTRY_NAME_MAP, infer_country_code, format_and_validate_phone
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger(__name__)
 
 class DeepCrawler:
