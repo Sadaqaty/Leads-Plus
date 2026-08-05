@@ -203,12 +203,19 @@ class DatabaseManager:
         place_ids = set()
         if self.is_supabase_connected:
             try:
-                res = self.supabase.table("leads").select("place_id").execute()
-                if res and res.data:
+                start = 0
+                step = 1000
+                while True:
+                    res = self.supabase.table("leads").select("place_id").range(start, start + step - 1).execute()
+                    if not res or not res.data:
+                        break
                     for row in res.data:
                         pid = row.get("place_id")
                         if pid and pid != "N/A":
                             place_ids.add(pid)
+                    if len(res.data) < step:
+                        break
+                    start += step
             except Exception as e:
                 logger.warning(f"Error fetching existing place_ids from Supabase: {e}")
 
