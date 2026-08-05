@@ -1151,6 +1151,8 @@ class MapsScraper:
                 target_limit = float('inf') if (total_results is None or total_results <= 0) else total_results
                 display_limit = "UNLIMITED" if target_limit == float('inf') else target_limit
 
+                no_new_item_streak = 0
+
                 while scraped_count < target_limit:
                     if stop_event and stop_event.is_set():
                         break
@@ -1250,6 +1252,15 @@ class MapsScraper:
                             logger.warning(f"Error parsing place item: {elem_err}")
                             continue
 
+                    if new_items_found:
+                        no_new_item_streak = 0
+                    else:
+                        no_new_item_streak += 1
+
+                    if no_new_item_streak >= 4:
+                        logger.info(f"No new leads found after 4 scroll attempts for query '{query}'. Moving to next query.")
+                        break
+
                     # Scroll feed to load more places
                     feed = await page.query_selector('div[role="feed"]')
                     if feed:
@@ -1265,6 +1276,12 @@ class MapsScraper:
                         else:
                             stuck_counter = 0
                         previous_height = current_height
+                    else:
+                        stuck_counter += 1
+                        if stuck_counter >= 3:
+                            logger.warning(f"No search feed found on page for query '{query}'. Moving to next query.")
+                            break
+                        await self._stealth_delay(1.5, 2.5)
 
                 if page:
                     await page.close()
