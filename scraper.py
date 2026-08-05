@@ -1055,6 +1055,14 @@ class MapsScraper:
             '--disable-blink-features=AutomationControlled'
         ]
 
+        # Pre-fetch existing place_ids from Supabase & SQLite to skip already extracted leads instantly
+        try:
+            self.existing_place_ids = self.db.get_existing_place_ids()
+            logger.info(f"Loaded {len(self.existing_place_ids)} existing place IDs from database to skip already extracted leads.")
+        except Exception as pid_err:
+            logger.warning(f"Could not load existing place_ids: {pid_err}")
+            self.existing_place_ids = set()
+
         async with async_playwright() as p:
             try:
                 browser = await p.chromium.launch(headless=headless, args=chromium_args)
@@ -1186,6 +1194,18 @@ class MapsScraper:
                                 continue
 
                             seen_place_urls.add(place_url)
+
+                            # Fast pre-extraction of place_id from URL string to skip existing leads instantly (0ms)
+                            extracted_pid = None
+                            if "!1s" in place_url:
+                                extracted_pid = place_url.split("!1s")[1].split("!")[0]
+                            elif "place/" in place_url:
+                                extracted_pid = place_url.split("place/")[1].split("/")[0]
+
+                            if extracted_pid and extracted_pid in self.existing_place_ids:
+                                logger.info(f"⏩ Skipping already extracted lead (Place ID: {extracted_pid})")
+                                continue
+
                             new_items_found = True
 
                             # Force English parameter on place URL
@@ -1229,6 +1249,8 @@ class MapsScraper:
 
                                 # Save Lead directly to Supabase & local SQLite
                                 self.db.insert_lead(item)
+                                if item.get("place_id") and item["place_id"] != "N/A":
+                                    self.existing_place_ids.add(item["place_id"])
 
                                 # Save discovered Contacts in a single bulk operation
                                 if contacts:

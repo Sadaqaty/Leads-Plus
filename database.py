@@ -198,6 +198,33 @@ class DatabaseManager:
         # 2. Always persist locally
         return self._insert_lead_local(lead_data, fields, place_id)
 
+    def get_existing_place_ids(self) -> set:
+        """Fetch set of all place_ids already present in Supabase or local SQLite DB."""
+        place_ids = set()
+        if self.is_supabase_connected:
+            try:
+                res = self.supabase.table("leads").select("place_id").execute()
+                if res and res.data:
+                    for row in res.data:
+                        pid = row.get("place_id")
+                        if pid and pid != "N/A":
+                            place_ids.add(pid)
+            except Exception as e:
+                logger.warning(f"Error fetching existing place_ids from Supabase: {e}")
+
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT place_id FROM leads WHERE place_id IS NOT NULL AND place_id != 'N/A'")
+                rows = cursor.fetchall()
+                for r in rows:
+                    if r[0]:
+                        place_ids.add(r[0])
+        except Exception as e:
+            logger.warning(f"Error fetching existing place_ids from local SQLite: {e}")
+
+        return place_ids
+
     def _insert_lead_local(self, lead_data, fields, place_id):
         try:
             with sqlite3.connect(self.db_path) as conn:
