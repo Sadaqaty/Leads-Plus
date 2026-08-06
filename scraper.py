@@ -91,18 +91,25 @@ class DeepCrawler:
 
         page = None
         try:
-            # 1. Discover key URLs & load homepage
+            # 1. Create lightweight page with resource interception & JS alert dismissal
             page = await self.browser.new_page()
-            await page.goto(base_url, timeout=20000, wait_until="domcontentloaded")
-            
-            # Wait for network idle or fallback delay for SPA/dynamic JavaScript rendering
+            page.on("dialog", lambda dialog: asyncio.create_task(dialog.dismiss()))
+
+            async def _intercept(route):
+                if route.request.resource_type in ["image", "media", "font", "stylesheet"]:
+                    await route.abort()
+                else:
+                    await route.continue_()
+
             try:
-                await page.wait_for_load_state("networkidle", timeout=3000)
+                await page.route("**/*", _intercept)
             except Exception:
                 pass
-            await asyncio.sleep(1)
 
-            # Scroll home page to trigger lazy loading
+            await page.goto(base_url, timeout=8000, wait_until="domcontentloaded")
+            await asyncio.sleep(0.3)
+
+            # Fast scroll home page
             await self._scroll_page(page)
             resolved_url = page.url
             content = await page.content()
@@ -124,7 +131,10 @@ class DeepCrawler:
                 elif any(x in abs_url.lower() for x in ['facebook.com', 'instagram.com', 'linkedin.com', 'twitter.com', 'youtube.com', 'tiktok.com', 'pinterest.com']):
                     socials.update(self._extract_socials(BeautifulSoup(f'<a href="{abs_url}"></a>', 'html.parser'), resolved_url, raw_html=abs_url))
             
-            await page.close()
+            try:
+                await page.close()
+            except Exception:
+                pass
             page = None # Prevent double close
 
             # 2. Crawl key internal discovery URLs (limit to 2 most relevant: contact/about)
@@ -136,8 +146,14 @@ class DeepCrawler:
                 sub_page = None
                 try:
                     sub_page = await self.browser.new_page()
-                    await sub_page.goto(url, timeout=8000, wait_until="domcontentloaded")
-                    await asyncio.sleep(0.3)
+                    sub_page.on("dialog", lambda dialog: asyncio.create_task(dialog.dismiss()))
+                    try:
+                        await sub_page.route("**/*", _intercept)
+                    except Exception:
+                        pass
+                    
+                    await sub_page.goto(url, timeout=5000, wait_until="domcontentloaded")
+                    await asyncio.sleep(0.2)
                     await self._scroll_page(sub_page)
                     
                     html = await sub_page.content()
@@ -150,12 +166,16 @@ class DeepCrawler:
                 except Exception as e:
                     logger.debug(f"Subpage crawl note for {url}: {e}")
                 finally:
-                    if sub_page: await sub_page.close()
+                    if sub_page:
+                        try: await sub_page.close()
+                        except Exception: pass
 
         except Exception as e:
             logger.warning(f"Crawling issue for {base_url}: {e}")
         finally:
-            if page: await page.close()
+            if page:
+                try: await page.close()
+                except Exception: pass
             
         return found_contacts, found_emails, found_phones, socials
 
@@ -1233,7 +1253,17 @@ class MapsScraper:
                                 if website != "N/A" and website.startswith("http"):
                                     logger.info(f"Deep crawling website: {website}")
                                     crawler = DeepCrawler(browser)
-                                    contacts, emails, phones, socials = await crawler.crawl_site(website, stop_event=stop_event, address=item.get("address"), query=query)
+                                    try:
+                                        contacts, emails, phones, socials = await asyncio.wait_for(
+                                            crawler.crawl_site(website, stop_event=stop_event, address=item.get("address"), query=query),
+                                            timeout=12.0
+                                        )
+                                    except asyncio.TimeoutError:
+                                        logger.warning(f"⏰ Deep crawl hard deadline reached (12s limit) for website: {website}. Skipping to save time.")
+                                        contacts, emails, phones, socials = [], set(), set(), {}
+                                    except Exception as crawl_err:
+                                        logger.warning(f"Deep crawl exception for {website}: {crawl_err}")
+                                        contacts, emails, phones, socials = [], set(), set(), {}
 
                                 # Enrich item with deep crawl results
                                 if emails:
