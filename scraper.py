@@ -106,7 +106,10 @@ class DeepCrawler:
             except Exception:
                 pass
 
-            await page.goto(base_url, timeout=8000, wait_until="domcontentloaded")
+            await asyncio.wait_for(
+                page.goto(base_url, timeout=8000, wait_until="domcontentloaded"),
+                timeout=10.0
+            )
             await asyncio.sleep(0.3)
 
             # Fast scroll home page
@@ -152,7 +155,10 @@ class DeepCrawler:
                     except Exception:
                         pass
                     
-                    await sub_page.goto(url, timeout=5000, wait_until="domcontentloaded")
+                    await asyncio.wait_for(
+                        sub_page.goto(url, timeout=5000, wait_until="domcontentloaded"),
+                        timeout=7.0
+                    )
                     await asyncio.sleep(0.2)
                     await self._scroll_page(sub_page)
                     
@@ -1037,7 +1043,11 @@ class MapsScraper:
         """Navigate to URL with exponential backoff, CAPTCHA/Bot block detection, and proxy health tracking."""
         for attempt in range(1, max_retries + 1):
             try:
-                response = await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
+                hard_deadline = (timeout / 1000.0) + 4.0
+                response = await asyncio.wait_for(
+                    page.goto(url, timeout=timeout, wait_until="domcontentloaded"),
+                    timeout=hard_deadline
+                )
                 
                 # Check for Google anti-bot / CAPTCHA block page
                 content = await page.content()
@@ -1051,7 +1061,7 @@ class MapsScraper:
             except Exception as e:
                 err_str = str(e)
                 logger.warning(f"Navigation attempt {attempt}/{max_retries} failed for {url} ({err_str})")
-                if current_proxy and ("net::ERR" in err_str or "PROXY" in err_str.upper() or "Timeout" in err_str or "CAPTCHA" in err_str):
+                if current_proxy and ("net::ERR" in err_str or "PROXY" in err_str.upper() or "Timeout" in err_str or "CAPTCHA" in err_str or "TimeoutError" in err_str):
                     self.proxy_manager.mark_unhealthy(current_proxy)
                 if attempt == max_retries:
                     raise e
