@@ -31,6 +31,7 @@ jobs:
               echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
               python -m PyInstaller --noconfirm --onedir --windowed --icon=icon.ico --add-data "${PLAYWRIGHT_PATH};playwright/driver" --add-data "ms-playwright;ms-playwright" --add-data "assets;assets" --add-data "config.env;." --add-data "icon.png;." --add-data "icon.ico;." --name LeadPulse main.py
+              python -m PyInstaller --noconfirm --onefile --windowed --icon=icon.ico --name MapsQueryGenerator-Windows maps_query_generator_gui.py
               iscc installer.iss
           - os: ubuntu-latest
             asset_name: LeadPulse-Linux-amd64.deb
@@ -52,6 +53,9 @@ jobs:
               # Build Headless Server Binary (Console mode for Ubuntu VPS, no Qt/PySide6 dependency)
               python -m PyInstaller --noconfirm --onedir --console --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "ms-playwright:ms-playwright" --add-data "assets:assets" --add-data "config.env:." --exclude-module PySide6 --exclude-module shiboken6 --name LeadPulse-Server main.py
               
+              # Build Standalone Query Generator GUI for Linux
+              python -m PyInstaller --noconfirm --onefile --windowed --icon=icon.png --name MapsQueryGenerator-Linux maps_query_generator_gui.py
+
               # Build Debian Package (.deb)
               mkdir -p deb_pkg/opt/leadpulse
               mkdir -p deb_pkg/usr/share/applications
@@ -98,7 +102,8 @@ jobs:
               echo "SUPABASE_KEY=${SUPABASE_KEY}" >> config.env
               PLAYWRIGHT_PATH=$(python -c "import os, playwright; print(os.path.join(os.path.dirname(playwright.__file__), 'driver'))")
               python -m PyInstaller --noconfirm --windowed --icon=icon.icns --add-data "${PLAYWRIGHT_PATH}:playwright/driver" --add-data "assets:assets" --add-data "config.env:." --add-data "icon.png:." --name LeadPulse main.py
-              
+              python -m PyInstaller --noconfirm --onefile --windowed --icon=icon.icns --name MapsQueryGenerator-macOS maps_query_generator_gui.py
+
               # Build macOS DMG Installer natively
               hdiutil create -volname "LeadPulse Installer" -srcfolder "dist/LeadPulse.app" -ov -format UDZO "dist/LeadPulse-Installer.dmg"
               cd dist && zip -r LeadPulse-macOS.zip LeadPulse.app
@@ -136,5 +141,8 @@ jobs:
             dist/LeadPulse-Server-standalone
             dist/LeadPulse-Installer.dmg
             dist/LeadPulse-macOS.zip
+            dist/MapsQueryGenerator-Windows.exe
+            dist/MapsQueryGenerator-Linux
+            dist/MapsQueryGenerator-macOS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
