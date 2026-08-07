@@ -1101,6 +1101,17 @@ class MapsScraper:
                 if stop_event and stop_event.is_set():
                     break
                     
+                # Re-launch browser if it died or disconnected unexpectedly during previous queries
+                if not browser or not browser.is_connected():
+                    logger.warning("Browser instance was closed or disconnected. Re-launching Playwright Chromium...")
+                    try:
+                        browser = await p.chromium.launch(headless=headless, args=chromium_args)
+                        self.browser = browser
+                    except Exception as relaunch_err:
+                        logger.error(f"Failed to relaunch browser: {relaunch_err}")
+                        await asyncio.sleep(3)
+                        continue
+
                 logger.info(f"Processing query [{q_idx}/{len(queries)}]: {query}")
                 search_url = f"https://www.google.com/maps/search/{quote(query)}?hl=en"
 
@@ -1142,7 +1153,10 @@ class MapsScraper:
                     except Exception as e:
                         logger.warning(f"Query navigation attempt {nav_attempt} failed: {e}")
                         if context:
-                            await context.close()
+                            try:
+                                await context.close()
+                            except Exception:
+                                pass
                             context = None
 
                 if not nav_success or not page:
@@ -1208,6 +1222,7 @@ class MapsScraper:
                         if stop_event and stop_event.is_set():
                             break
 
+                        detail_page = None
                         try:
                             place_url = await elem.get_attribute("href")
                             if not place_url or place_url in seen_place_urls:
@@ -1234,13 +1249,12 @@ class MapsScraper:
                             else:
                                 place_url += "&hl=en" if "?" in place_url else "?hl=en"
 
-                            # Open place detail view inside stealth context
+                            # Open place detail view inside stealth context safely
                             detail_page = await context.new_page()
-                            await self._navigate_with_retry(detail_page, place_url, max_retries=2, timeout=20000, current_proxy=current_proxy)
-                            await self._stealth_delay(1.0, 2.2)
+                            await self._navigate_with_retry(detail_page, place_url, max_retries=2, timeout=15000, current_proxy=current_proxy)
+                            await self._stealth_delay(0.8, 1.8)
 
                             item = await self._parse_place_details(detail_page, query)
-                            await detail_page.close()
 
                             if item and item.get("place_id") != "N/A" and item.get("name") != "N/A":
                                 # Deep web crawl if website is present
@@ -1301,12 +1315,20 @@ class MapsScraper:
                                     }
                                     await callback(item, meta)
 
+                                if scraped_count % 10 == 0:
+                                    gc.collect()
+
                                 # Humanized jitter pause between extractions
-                                await self._stealth_delay(0.8, 1.8)
+                                await self._stealth_delay(0.6, 1.4)
 
                         except Exception as elem_err:
                             logger.warning(f"Error parsing place item: {elem_err}")
-                            continue
+                        finally:
+                            if detail_page:
+                                try:
+                                    await detail_page.close()
+                                except Exception:
+                                    pass
 
                     if new_items_found:
                         no_new_item_streak = 0
@@ -1340,12 +1362,21 @@ class MapsScraper:
                         await self._stealth_delay(1.5, 2.5)
 
                 if page:
-                    await page.close()
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass
                 if context:
-                    await context.close()
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
                 gc.collect()
 
-            await browser.close()
+            try:
+                await browser.close()
+            except Exception:
+                pass
 
     async def _parse_place_details(self, page, query):
         item = {

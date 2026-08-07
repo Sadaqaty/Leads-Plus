@@ -81,6 +81,23 @@ def run_cli_mode(args):
     print(f" 💾 CSV Export Path         : {os.path.abspath(output_path)}")
     print("=" * 75 + "\n")
 
+    # Ensure logs directory exists
+    logs_dir = os.path.join(os.getcwd(), "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    
+    # Determine log filename based on query file or timestamp
+    log_name = "scraper.log"
+    if args.file:
+        file_base = os.path.basename(args.file).replace(".", "_")
+        log_name = f"worker_{file_base}.log"
+    log_file_path = os.path.join(logs_dir, log_name)
+
+    # Attach FileHandler to root logger for persistent disk logging
+    file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
+    file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s', '%Y-%m-%d %H:%M:%S'))
+    logging.getLogger().addHandler(file_handler)
+    logging.info(f"Logging activity to persistent disk log file: {log_file_path}")
+
     db = DatabaseManager()
     scraper = MapsScraper(proxy_list=args.proxy, proxy_file=args.proxy_file)
     total_extracted = 0
@@ -105,29 +122,53 @@ def run_cli_mode(args):
         print(f"[{now_str}] [{meta['current_count']}/{meta['max_results']}] Extracted: {name}{cat_str}{web_str} | 📞 {phone} | ✉️ {email}{social_str} | ⭐ {rating} ({reviews} rev)")
 
     async def main_async():
-        await scraper.scrape_maps(
-            queries,
-            total_results=args.max_results,
-            callback=cli_callback,
-            headless=headless,
-            proxy_list=args.proxy,
-            proxy_file=args.proxy_file,
-            no_proxy=getattr(args, 'no_proxy', False)
-        )
+        retry_count = 0
+        while True:
+            try:
+                await scraper.scrape_maps(
+                    queries,
+                    total_results=args.max_results,
+                    callback=cli_callback,
+                    headless=headless,
+                    proxy_list=args.proxy,
+                    proxy_file=args.proxy_file,
+                    no_proxy=getattr(args, 'no_proxy', False)
+                )
+                break
+            except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
+                raise
+            except Exception as exc:
+                retry_count += 1
+                logging.error(f"Uncaught exception in scraper loop (Attempt {retry_count}): {exc}", exc_info=True)
+                print(f"\n⚠️ Unexpected error occurred: {exc}. Auto-restarting engine in 5 seconds...")
+                await asyncio.sleep(5)
+                if retry_count >= 10:
+                    logging.critical("Max auto-restarts exceeded. Stopping worker loop.")
+                    break
 
     try:
         asyncio.run(main_async())
     except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
         print("\n⚠️ Extraction stopped by user.")
     except Exception as e:
-        print(f"\n⚠️ Extraction process finished: {e}")
+        print(f"\n⚠️ Extraction process finished with error: {e}")
 
     print("\n" + "=" * 75)
-    print(f" ✅ Extraction Completed! Total leads processed: {total_extracted}")
+    print(f" ✅ Extraction Batch Completed! Total leads processed: {total_extracted}")
     exported = db.export_to_csv(output_path)
     if exported:
         print(f" 📁 All leads saved to CSV: {os.path.abspath(output_path)}")
     print("=" * 75 + "\n")
+    print(f" 📌 Worker log file saved at: {log_file_path}")
+    print(" ℹ️ Worker entering persistent idle mode to preserve tmux session logs...")
+    
+    # Keep tmux session alive so user can view logs anytime
+    try:
+        import time
+        while True:
+            time.sleep(3600)
+    except (KeyboardInterrupt, SystemExit):
+        pass
 
 def main():
     parser = argparse.ArgumentParser(

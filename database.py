@@ -150,50 +150,55 @@ class DatabaseManager:
             "contacts_count"
         ]
 
-        # 1. Push to Supabase if connected
+        # 1. Push to Supabase if connected (with 3-attempt network retry)
         if self.is_supabase_connected:
-            try:
-                res = self.supabase.table("leads").select("*").eq("place_id", place_id).execute()
-                existing = res.data[0] if res.data else None
-                
-                if existing:
-                    merged = {}
-                    for f in fields:
-                        new_val = lead_data.get(f, "N/A")
-                        old_val = existing.get(f, "N/A")
-                        if f == "email":
-                            new_emails = [e.strip() for e in str(new_val).split(',') if e.strip() and e.strip() != "N/A"]
-                            old_emails = [e.strip() for e in str(old_val).split(',') if e.strip() and e.strip() != "N/A"]
-                            combined = list(dict.fromkeys(old_emails + new_emails))
-                            merged["email"] = ", ".join(combined) if combined else "N/A"
-                        elif str(new_val).strip() in ["N/A", "", "None", "0"] and str(old_val).strip() not in ["N/A", "", "None", "0"]:
-                            merged[f] = old_val
-                        else:
-                            merged[f] = new_val
+            for attempt in range(1, 4):
+                try:
+                    res = self.supabase.table("leads").select("*").eq("place_id", place_id).execute()
+                    existing = res.data[0] if res.data else None
                     
-                    try:
-                        merged["contacts_count"] = int(merged["contacts_count"]) if str(merged.get("contacts_count")).strip() not in ["N/A", "", "None"] else 0
-                    except (ValueError, TypeError):
-                        merged["contacts_count"] = 0
+                    if existing:
+                        merged = {}
+                        for f in fields:
+                            new_val = lead_data.get(f, "N/A")
+                            old_val = existing.get(f, "N/A")
+                            if f == "email":
+                                new_emails = [e.strip() for e in str(new_val).split(',') if e.strip() and e.strip() != "N/A"]
+                                old_emails = [e.strip() for e in str(old_val).split(',') if e.strip() and e.strip() != "N/A"]
+                                combined = list(dict.fromkeys(old_emails + new_emails))
+                                merged["email"] = ", ".join(combined) if combined else "N/A"
+                            elif str(new_val).strip() in ["N/A", "", "None", "0"] and str(old_val).strip() not in ["N/A", "", "None", "0"]:
+                                merged[f] = old_val
+                            else:
+                                merged[f] = new_val
+                        
+                        try:
+                            merged["contacts_count"] = int(merged["contacts_count"]) if str(merged.get("contacts_count")).strip() not in ["N/A", "", "None"] else 0
+                        except (ValueError, TypeError):
+                            merged["contacts_count"] = 0
 
-                    self.supabase.table("leads").update(merged).eq("place_id", place_id).execute()
-                    logger.info(f"Merged lead in Supabase: {lead_data.get('name')}")
-                else:
-                    clean_lead = {}
-                    for f in fields:
-                        val = lead_data.get(f, "N/A")
-                        if f == "contacts_count":
-                            try:
-                                clean_lead[f] = int(val) if str(val).strip() not in ["N/A", "", "None"] else 0
-                            except (ValueError, TypeError):
-                                clean_lead[f] = 0
-                        else:
-                            clean_lead[f] = val
+                        self.supabase.table("leads").update(merged).eq("place_id", place_id).execute()
+                        logger.info(f"Merged lead in Supabase: {lead_data.get('name')}")
+                    else:
+                        clean_lead = {}
+                        for f in fields:
+                            val = lead_data.get(f, "N/A")
+                            if f == "contacts_count":
+                                try:
+                                    clean_lead[f] = int(val) if str(val).strip() not in ["N/A", "", "None"] else 0
+                                except (ValueError, TypeError):
+                                    clean_lead[f] = 0
+                            else:
+                                clean_lead[f] = val
 
-                    self.supabase.table("leads").insert(clean_lead).execute()
-                    logger.info(f"Stored lead: {lead_data.get('name')}")
-            except Exception as e:
-                logger.error(f"lead insert failed: {e}. Falling back to local SQL.")
+                        self.supabase.table("leads").insert(clean_lead).execute()
+                        logger.info(f"Stored lead: {lead_data.get('name')}")
+                    break  # Success, exit retry loop
+                except Exception as e:
+                    if attempt == 3:
+                        logger.error(f"Supabase lead insert failed after 3 retries: {e}. Falling back to local SQL.")
+                    else:
+                        time.sleep(1.0 * attempt)
 
         # 2. Always persist locally
         return self._insert_lead_local(lead_data, fields, place_id)
