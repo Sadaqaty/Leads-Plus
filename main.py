@@ -121,6 +121,8 @@ def run_cli_mode(args):
         
         print(f"[{now_str}] [{meta['current_count']}/{meta['max_results']}] Extracted: {name}{cat_str}{web_str} | 📞 {phone} | ✉️ {email}{social_str} | ⭐ {rating} ({reviews} rev)")
 
+    target_query_file = args.file if args.file else ("queries.txt" if os.path.exists("queries.txt") else None)
+
     async def main_async():
         retry_count = 0
         while True:
@@ -132,7 +134,8 @@ def run_cli_mode(args):
                     headless=headless,
                     proxy_list=args.proxy,
                     proxy_file=args.proxy_file,
-                    no_proxy=getattr(args, 'no_proxy', False)
+                    no_proxy=getattr(args, 'no_proxy', False),
+                    query_file=target_query_file
                 )
                 break
             except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):

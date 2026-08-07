@@ -1057,7 +1057,30 @@ class MapsScraper:
                     raise e
                 await asyncio.sleep(attempt * 1.5)
 
-    async def scrape_maps(self, queries, total_results=10, callback=None, stop_event=None, headless=True, proxy_list=None, proxy_file=None, no_proxy=False):
+    def _remove_completed_query_from_file(self, file_path, completed_query):
+        if not file_path or not os.path.exists(file_path):
+            return
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            new_lines = []
+            removed = False
+            target_str = completed_query.strip().lower()
+            for line in lines:
+                if not removed and line.strip().lower() == target_str:
+                    removed = True
+                    continue
+                new_lines.append(line)
+
+            if removed:
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.writelines(new_lines)
+                logger.info(f"🗑️ Completed & auto-removed query '{completed_query}' from {os.path.basename(file_path)}")
+        except Exception as e:
+            logger.warning(f"Could not auto-remove query '{completed_query}' from file {file_path}: {e}")
+
+    async def scrape_maps(self, queries, total_results=10, callback=None, stop_event=None, headless=True, proxy_list=None, proxy_file=None, no_proxy=False, query_file=None):
         if isinstance(queries, str):
             queries = [queries]
 
@@ -1372,6 +1395,9 @@ class MapsScraper:
                     except Exception:
                         pass
                 gc.collect()
+
+                if query_file:
+                    self._remove_completed_query_from_file(query_file, query)
 
             try:
                 await browser.close()
